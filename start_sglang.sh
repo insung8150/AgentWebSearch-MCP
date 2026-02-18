@@ -30,7 +30,7 @@ echo "Starting AgentCPM-Explore on port $PORT (GPU $GPU_ID)..."
 echo "Model: $MODEL_PATH"
 echo "Log: $LOG_FILE"
 
-CUDA_VISIBLE_DEVICES=$GPU_ID nohup python -m sglang.launch_server \
+CUDA_VISIBLE_DEVICES=$GPU_ID nohup python3 -m sglang.launch_server \
     --model-path "$MODEL_PATH" \
     --port $PORT \
     --host 0.0.0.0 \

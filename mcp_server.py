@@ -38,7 +38,7 @@ except ImportError:
 
 # LLM Adapter (for agent_search)
 try:
-    from llm_adapters import get_adapter, detect_available_backends
+    from llm_adapters import get_adapter
     HAS_LLM_ADAPTERS = True
 except ImportError:
     HAS_LLM_ADAPTERS = False
@@ -50,32 +50,11 @@ try:
 except ImportError:
     HAS_SEARCH_AGENT = False
 
-# LLM backend configurations
-LLM_BACKENDS = {
-    "sglang": {
-        "url": "http://localhost:30001",
-        "model": "AgentCPM-Explore",
-        "description": "SGLang + AgentCPM-Explore (search-optimized, recommended)",
-        "recommended": True,
-    },
-    "ollama": {
-        "url": "http://localhost:11434",
-        "model": "qwen3:8b",
-        "description": "Ollama (local LLM, general purpose)",
-        "recommended": False,
-    },
-    "lmstudio": {
-        "url": "http://localhost:1234",
-        "model": "",
-        "description": "LM Studio (local LLM, general purpose)",
-        "recommended": False,
-    },
-    "openai": {
-        "url": "",
-        "model": "gpt-4o",
-        "description": "OpenAI API (paid)",
-        "recommended": False,
-    },
+# AgentCPM configuration (SGLang only)
+AGENTCPM_CONFIG = {
+    "url": "http://localhost:30001",
+    "model": "AgentCPM-Explore",
+    "description": "AgentCPM-Explore 4B model (OpenBMB/THUNLP) - optimized for search tasks",
 }
 
 # Configuration
@@ -319,15 +298,17 @@ async def list_tools() -> list[Tool]:
         ),
     ]
 
-    # Add agent_search tool (only when LLM adapters available)
+    # Add agentcpm tool (SGLang + AgentCPM-Explore only)
     if HAS_LLM_ADAPTERS and HAS_SEARCH_AGENT:
         tools.append(
             Tool(
-                name="agent_search",
-                description="""Agentic search using local LLM. The LLM plans search queries, executes search, analyzes results, and generates answers automatically.
+                name="agentcpm",
+                description="""Agentic search using AgentCPM-Explore model (4B, OpenBMB/THUNLP).
+This model is specifically trained for search agent tasks - generates diverse queries and handles tool calling optimally.
 
-**Recommended**: llm=sglang (AgentCPM-Explore model, trained for search tasks)
-**Alternatives**: ollama, lmstudio, or your existing models""",
+**Requires**: SGLang server running with AgentCPM-Explore model on port 30001.
+**First run**: Model loading takes ~30-45 seconds.
+**Use smart_search instead** if you don't have SGLang/AgentCPM-Explore set up.""",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -335,22 +316,16 @@ async def list_tools() -> list[Tool]:
                             "type": "string",
                             "description": "Search query"
                         },
-                        "llm": {
-                            "type": "string",
-                            "enum": ["auto", "sglang", "ollama", "lmstudio", "openai"],
-                            "default": "auto",
-                            "description": "LLM backend. auto(use available), sglang(recommended), ollama, lmstudio, openai(paid)"
-                        },
-                        "model": {
-                            "type": "string",
-                            "default": "",
-                            "description": "Model name (empty=backend default). e.g., qwen3:8b, gpt-4o"
-                        },
                         "depth": {
                             "type": "string",
                             "enum": ["simple", "medium", "deep"],
                             "default": "medium",
                             "description": "Search depth: simple(fast), medium(default), deep(detailed)"
+                        },
+                        "confirm": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Set to true to confirm using AgentCPM-Explore (required if SGLang not running)"
                         }
                     },
                     "required": ["query"]
@@ -482,59 +457,59 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         return [TextContent(type="text", text="\n".join(output))]
 
-    elif name == "agent_search":
+    elif name == "agentcpm":
         if not HAS_LLM_ADAPTERS or not HAS_SEARCH_AGENT:
-            return [TextContent(type="text", text="Error: agent_search requires llm_adapters and search_agent modules")]
+            return [TextContent(type="text", text="Error: agentcpm requires llm_adapters and search_agent modules")]
 
         query = arguments.get("query", "")
-        llm = arguments.get("llm", "")  # Empty = auto-detect
-        model = arguments.get("model", "")
         depth = arguments.get("depth", "medium")
+        confirm = arguments.get("confirm", False)
 
         if not query:
             return [TextContent(type="text", text="Error: query is required")]
 
-        # Auto-detect available backend if not specified
+        # Check if SGLang is running
+        sglang_running = False
         try:
-            available = await detect_available_backends()
-            available = [b["name"] for b in available]  # Extract backend names
+            import httpx
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get(f"{AGENTCPM_CONFIG['url']}/health")
+                sglang_running = resp.status_code == 200
         except Exception:
-            available = []
+            pass
 
-        if not llm or llm == "auto":
-            # Priority: sglang > lmstudio > ollama > openai
-            priority = ["sglang", "lmstudio", "ollama", "openai"]
-            for backend in priority:
-                if backend in available:
-                    llm = backend
-                    break
-            if not llm:
-                return [TextContent(type="text", text="Error: No LLM backend available. Start sglang, ollama, or lmstudio first.")]
-        elif llm not in available:
-            available_list = ", ".join(available) if available else "none"
-            return [TextContent(type="text", text=f"Error: {llm} backend not available. Available: {available_list}")]
+        if not sglang_running:
+            if not confirm:
+                return [TextContent(type="text", text=f"""## AgentCPM-Explore Not Running
 
-        # LLM backend config
-        backend_cfg = LLM_BACKENDS.get(llm, LLM_BACKENDS["sglang"])
-        url = backend_cfg["url"]
-        model_name = model if model else backend_cfg["model"]
+SGLang server with AgentCPM-Explore model is not detected on port 30001.
 
-        # Configure search_agent module
+**To use agentcpm:**
+1. Start SGLang server: `MODEL_PATH=/path/to/AgentCPM-Explore ./start_sglang.sh`
+2. Wait 30-45 seconds for model loading
+3. Call agentcpm again with `confirm=true`
+
+**Alternative:** Use `smart_search` instead (no LLM required, works immediately).
+
+Do you want to proceed anyway? Call with `confirm=true` to confirm.""")]
+            # User confirmed, but SGLang still not running
+            return [TextContent(type="text", text="Error: SGLang server not running. Please start it first with: MODEL_PATH=/path/to/AgentCPM-Explore ./start_sglang.sh")]
+
+        # SGLang is running - proceed with search
         try:
-            # Update global settings
-            sa_module.LLM_BACKEND = llm
-            sa_module.LLM_URL = url
-            sa_module.LLM_MODEL = model_name
+            # Configure search_agent module for SGLang
+            sa_module.LLM_BACKEND = "sglang"
+            sa_module.LLM_URL = AGENTCPM_CONFIG["url"]
+            sa_module.LLM_MODEL = AGENTCPM_CONFIG["model"]
             sa_module.CURRENT_DEPTH = depth
 
             # Initialize adapter
-            sa_module.LLM_ADAPTER = get_adapter(llm, url=url, model=model_name)
+            sa_module.LLM_ADAPTER = get_adapter("sglang", url=AGENTCPM_CONFIG["url"], model=AGENTCPM_CONFIG["model"])
 
             # Output header
             output = [
-                f"## Agent Search: '{query}'",
-                f"**Backend**: {llm} ({backend_cfg['description']})",
-                f"**Model**: {model_name or '(default)'}",
+                f"## AgentCPM Search: '{query}'",
+                f"**Model**: {AGENTCPM_CONFIG['model']} ({AGENTCPM_CONFIG['description']})",
                 f"**Depth**: {depth}",
                 "",
                 "---",
@@ -548,7 +523,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text="\n".join(output))]
 
         except Exception as e:
-            return [TextContent(type="text", text=f"Error running agent_search: {e}")]
+            return [TextContent(type="text", text=f"Error running agentcpm: {e}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

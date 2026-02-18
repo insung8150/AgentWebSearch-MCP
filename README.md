@@ -19,10 +19,8 @@ No API keys needed - **just Chrome**.
 
 - **No API keys** - Direct Chrome CDP (DevTools Protocol) control
 - **MCP Server** - Use as Claude Code / Cursor / LM Studio tool
-- **AgentCPM-Explore** - Search-optimized 4B model from OpenBMB/THUNLP (recommended)
-- **Agentic Search** - LLM plans and executes search automatically
+- **AgentCPM-Explore** - Search-optimized 4B model from OpenBMB/THUNLP (optional)
 - **Parallel search** - 3 Chrome instances for Naver/Google/Brave simultaneously
-- **Multi-LLM support** - SGLang, Ollama, LM Studio, OpenAI-compatible APIs
 - **Bot detection bypass** - Session persistence + stealth flags
 - **CAPTCHA resistant** - Real browser sessions avoid most CAPTCHA challenges
 
@@ -93,7 +91,7 @@ python mcp_server.py --sse --port 8902
 | `web_search` | Search Naver/Google/Brave in parallel | No |
 | `fetch_urls` | Fetch webpage content from URLs | No |
 | `smart_search` | Search + auto-fetch with depth control | No |
-| `agent_search` | Agentic search with LLM backend selection | Yes |
+| `agentcpm` | Agentic search with AgentCPM-Explore (SGLang) | Yes |
 
 ### Tool Parameters
 
@@ -106,40 +104,38 @@ python mcp_server.py --sse --port 8902
 | | `deep` | Fetch top 15 URLs (slow) |
 | `portal` | `all`/`naver`/`google`/`brave` | Search portal |
 
-#### `agent_search`
+#### `agentcpm`
 
-Uses LLM to plan search queries, execute searches, and generate answers.
+Uses **AgentCPM-Explore** model (4B, OpenBMB/THUNLP) via SGLang to plan search queries, execute searches, and generate answers.
 
 | Parameter | Values | Description |
 |-----------|--------|-------------|
 | `query` | string | Search query (required) |
-| `llm` | `sglang` | **Recommended** - [AgentCPM-Explore](https://huggingface.co/openbmb/AgentCPM-Explore) (4B, search-optimized) |
-| | `ollama` | Local LLM (general purpose) |
-| | `lmstudio` | Local LLM (general purpose) |
-| | `openai` | Paid API |
-| `model` | string | Model name (empty = backend default) |
-| `depth` | `simple`/`medium`/`deep` | Search depth |
+| `depth` | `simple`/`medium`/`deep` | Search depth (default: medium) |
+| `confirm` | boolean | Confirm to proceed if SGLang not running |
+
+**Requirements:**
+- SGLang server running on port 30001
+- AgentCPM-Explore model loaded
+
+**First time setup:** Model loading takes ~30-45 seconds. Use `smart_search` if you don't have SGLang set up.
 
 > **Why AgentCPM-Explore?** Trained specifically for search agent tasks by OpenBMB/THUNLP. Generates diverse queries and handles tool calling better than general-purpose models.
 
 ### Example Usage
 ```
-"Search latest AI news" → web_search tool
-"Search AI news with sglang" → agent_search(llm="sglang")
+"Search latest AI news" → smart_search tool
 "Deep search about GPT-5" → smart_search(depth="deep")
+"Use AgentCPM for AI news" → agentcpm(query="AI news")
 ```
 
 ## Standalone Agent (CLI)
 
-Run search agent directly from command line with LLM backend.
+Run search agent directly from command line.
 
 ```bash
 # Default: SGLang backend
 python search_agent.py "search query"
-
-# Select LLM backend
-python search_agent.py --llm ollama "search query"
-python search_agent.py --llm lmstudio --model qwen3-8b "search query"
 
 # Search depth
 python search_agent.py "query" --depth simple   # snippets only (fast)
@@ -149,13 +145,11 @@ python search_agent.py "query" --depth deep     # fetch all URLs (slow)
 # Interactive mode
 python search_agent.py -i
 
-# List available backends
+# CLI supports multiple backends (--llm ollama/lmstudio/openai)
 python search_agent.py --list-backends
 ```
 
-## LLM Backend Setup
-
-### Option A: SGLang + AgentCPM-Explore (Recommended)
+## AgentCPM-Explore Setup (for `agentcpm` tool)
 
 **AgentCPM-Explore** is a 4B parameter model from [OpenBMB/THUNLP](https://github.com/OpenBMB/AgentCPM) specifically trained for search agent tasks:
 - Automatically generates diverse search queries (Korean/English, multiple perspectives)
@@ -170,21 +164,10 @@ pip install sglang[all]
 # https://huggingface.co/openbmb/AgentCPM-Explore
 
 # 3. Start server
-./start_sglang.sh
+MODEL_PATH=/path/to/AgentCPM-Explore ./start_sglang.sh
 ```
 
-### Option B: Ollama (Easiest)
-```bash
-# Install: https://ollama.ai
-ollama pull qwen3:8b
-ollama serve
-```
-
-### Option C: LM Studio
-```bash
-# Install: https://lmstudio.ai
-# Load model and start server in the app
-```
+**Note:** The `agentcpm` MCP tool exclusively uses SGLang + AgentCPM-Explore. For other LLM backends, use `smart_search` or the CLI (`search_agent.py --llm ollama`).
 
 ## Architecture
 
@@ -194,13 +177,7 @@ User Query
 MCP Server (mcp_server.py)
 +-- web_search      → CDP Search only
 +-- smart_search    → CDP Search + URL Fetch
-+-- agent_search    → LLM + CDP Search + URL Fetch
-    |
-LLM Adapter Layer (for agent_search)
-+-- SGLang (port 30001) - AgentCPM-Explore (recommended)
-+-- Ollama (port 11434) - qwen3:8b etc.
-+-- LM Studio (port 1234)
-+-- OpenAI (compatible API)
++-- agentcpm        → SGLang + AgentCPM-Explore + CDP Search
     |
 CDP Search (parallel)
 +-- Chrome:9222 → Naver
@@ -218,7 +195,7 @@ AgentWebSearch-MCP/
 ├── search_agent.py       # Standalone CLI agent
 ├── cdp_search.py         # CDP parallel search
 ├── chrome_launcher.py    # Chrome instance manager
-├── llm_adapters/         # Multi-LLM support
+├── llm_adapters/         # LLM adapters (CLI use)
 │   ├── base.py           # Common interface
 │   ├── sglang_adapter.py
 │   ├── ollama_adapter.py
@@ -239,7 +216,7 @@ AgentWebSearch-MCP/
 
 - Python 3.10+
 - Chrome/Chromium
-- For `agent_search`: LLM backend (SGLang/Ollama/LM Studio/OpenAI)
+- For `agentcpm` tool: SGLang + AgentCPM-Explore model
 
 ## License
 
