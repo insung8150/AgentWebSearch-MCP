@@ -19,9 +19,8 @@ No API keys needed - **just Chrome**.
 
 - **No API keys** - Direct Chrome CDP (DevTools Protocol) control
 - **MCP Server** - Use as Claude Code / Cursor / LM Studio tool
+- **Agentic Search** - LLM plans and executes search automatically
 - **Parallel search** - 3 Chrome instances for Naver/Google/Brave simultaneously
-- **Extensible portals** - Add your own search portals easily (see `PORTAL_CONFIG` in `cdp_search.py`)
-- **Korean support** - Naver integrated search included
 - **Multi-LLM support** - SGLang, Ollama, LM Studio, OpenAI-compatible APIs
 - **Bot detection bypass** - Session persistence + stealth flags
 - **CAPTCHA resistant** - Real browser sessions avoid most CAPTCHA challenges
@@ -37,13 +36,14 @@ pip install -r requirements.txt
 
 ### 2. Start Chrome (debugging mode)
 ```bash
-# Auto-start 3 Chrome instances
-python chrome_launcher.py start
+python chrome_launcher.py start   # Start 3 Chrome instances
+python chrome_launcher.py status  # Check status
+python chrome_launcher.py stop    # Stop all
 ```
 
-## MCP Server (Claude Code / Cursor / LM Studio)
+## MCP Server
 
-Use web search as an MCP tool without any LLM backend setup.
+Use web search as an MCP tool in Claude Code, Cursor, or LM Studio.
 
 ### Quick Start
 ```bash
@@ -79,23 +79,69 @@ python mcp_server.py --sse --port 8902
 
 ### Available MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `web_search` | Search Naver/Google/Brave in parallel |
-| `fetch_urls` | Fetch webpage content from URLs |
-| `smart_search` | Search + auto-fetch top results |
+| Tool | Description | LLM Required |
+|------|-------------|--------------|
+| `web_search` | Search Naver/Google/Brave in parallel | No |
+| `fetch_urls` | Fetch webpage content from URLs | No |
+| `smart_search` | Search + auto-fetch with depth control | No |
+| `agent_search` | Agentic search with LLM backend selection | Yes |
 
-### Example Usage in Claude Code
+### Tool Parameters
+
+#### `smart_search`
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `query` | string | Search query (required) |
+| `depth` | `simple` | Snippets only (fast) |
+| | `medium` | Fetch top 5 URLs (default) |
+| | `deep` | Fetch top 15 URLs (slow) |
+| `portal` | `all`/`naver`/`google`/`brave` | Search portal |
+
+#### `agent_search`
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `query` | string | Search query (required) |
+| `llm` | `sglang` | **Recommended** - AgentCPM-Explore (search-optimized) |
+| | `ollama` | Local LLM (general purpose) |
+| | `lmstudio` | Local LLM (general purpose) |
+| | `openai` | Paid API |
+| `model` | string | Model name (empty = backend default) |
+| `depth` | `simple`/`medium`/`deep` | Search depth |
+
+### Example Usage
 ```
-"최신 AI 뉴스 검색해줘" → web_search 도구 자동 호출
-"이 URL들 내용 가져와" → fetch_urls 도구 호출
+"Search latest AI news" → web_search tool
+"Search AI news with sglang" → agent_search(llm="sglang")
+"Deep search about GPT-5" → smart_search(depth="deep")
 ```
 
-### 3. Choose and install LLM backend
+## Standalone Agent (CLI)
 
-AgentWebSearch-MCP supports multiple LLM backends:
+Run search agent directly from command line with LLM backend.
 
-#### Option A: SGLang + AgentCPM-Explore (Search-optimized, Recommended)
+```bash
+# Default: SGLang backend
+python search_agent.py "search query"
+
+# Select LLM backend
+python search_agent.py --llm ollama "search query"
+python search_agent.py --llm lmstudio --model qwen3-8b "search query"
+
+# Search depth
+python search_agent.py "query" --depth simple   # snippets only (fast)
+python search_agent.py "query" --depth medium   # fetch top 5 URLs (default)
+python search_agent.py "query" --depth deep     # fetch all URLs (slow)
+
+# Interactive mode
+python search_agent.py -i
+
+# List available backends
+python search_agent.py --list-backends
+```
+
+## LLM Backend Setup
+
+### Option A: SGLang + AgentCPM-Explore (Recommended)
 ```bash
 # 1. Install SGLang (CUDA required)
 pip install sglang[all]
@@ -103,46 +149,22 @@ pip install sglang[all]
 # 2. Download AgentCPM-Explore model (~8GB)
 # https://huggingface.co/openbmb/AgentCPM-Explore
 
-# 3. Edit MODEL_PATH in start_sglang.sh, then run
+# 3. Start server
 ./start_sglang.sh
 ```
 > AgentCPM-Explore is a 4B model specialized for search agents.
-> Automatically generates diverse search queries (Korean/English, multiple perspectives).
 
-#### Option B: Ollama (Easiest)
+### Option B: Ollama (Easiest)
 ```bash
-# Install Ollama: https://ollama.ai
+# Install: https://ollama.ai
 ollama pull qwen3:8b
 ollama serve
 ```
 
-#### Option C: LM Studio
+### Option C: LM Studio
 ```bash
-# Install LM Studio: https://lmstudio.ai
+# Install: https://lmstudio.ai
 # Load model and start server in the app
-```
-
-## Usage
-
-```bash
-# Single query (default: SGLang)
-python search_agent.py "search query"
-
-# Select LLM backend
-python search_agent.py --llm ollama "search query"
-python search_agent.py --llm lmstudio "search query"
-python search_agent.py --llm lmstudio --model qwen3-8b "search query"
-
-# List available backends
-python search_agent.py --list-backends
-
-# Search depth settings
-python search_agent.py "query" --depth simple   # snippets only (fast)
-python search_agent.py "query" --depth medium   # fetch top 5 URLs
-python search_agent.py "query" --depth deep     # fetch all URLs (slow)
-
-# Interactive mode
-python search_agent.py -i
 ```
 
 ## Architecture
@@ -150,16 +172,21 @@ python search_agent.py -i
 ```
 User Query
     |
-LLM Adapter Layer
-+-- SGLang (port 30001) - AgentCPM-Explore (default)
+MCP Server (mcp_server.py)
++-- web_search      → CDP Search only
++-- smart_search    → CDP Search + URL Fetch
++-- agent_search    → LLM + CDP Search + URL Fetch
+    |
+LLM Adapter Layer (for agent_search)
++-- SGLang (port 30001) - AgentCPM-Explore (recommended)
 +-- Ollama (port 11434) - qwen3:8b etc.
-+-- LM Studio (port 1234) - loaded model
++-- LM Studio (port 1234)
 +-- OpenAI (compatible API)
     |
 CDP Search (parallel)
-+-- Chrome:9222 -> Naver
-+-- Chrome:9223 -> Google
-+-- Chrome:9224 -> Brave
++-- Chrome:9222 → Naver
++-- Chrome:9223 → Google
++-- Chrome:9224 → Brave
     |
 Final Answer + Sources
 ```
@@ -168,18 +195,17 @@ Final Answer + Sources
 
 ```
 AgentWebSearch-MCP/
-+-- mcp_server.py         # MCP server (Claude Code/Cursor)
-+-- search_agent.py       # Standalone agent (with LLM)
-+-- cdp_search.py         # CDP parallel search
-+-- chrome_launcher.py    # Chrome instance manager
-+-- llm_adapters/         # Multi-LLM support
-|   +-- base.py           # Common interface
-|   +-- sglang_adapter.py # SGLang (<tool_call> format)
-|   +-- ollama_adapter.py # Ollama (function calling)
-|   +-- lmstudio_adapter.py
-|   +-- openai_adapter.py
-+-- start_sglang.sh       # SGLang server startup
-+-- clear_tabs.py         # Tab cleanup utility
+├── mcp_server.py         # MCP server (4 tools)
+├── search_agent.py       # Standalone CLI agent
+├── cdp_search.py         # CDP parallel search
+├── chrome_launcher.py    # Chrome instance manager
+├── llm_adapters/         # Multi-LLM support
+│   ├── base.py           # Common interface
+│   ├── sglang_adapter.py
+│   ├── ollama_adapter.py
+│   ├── lmstudio_adapter.py
+│   └── openai_adapter.py
+└── start_sglang.sh       # SGLang server startup
 ```
 
 ## Performance
@@ -194,11 +220,7 @@ AgentWebSearch-MCP/
 
 - Python 3.10+
 - Chrome/Chromium
-- LLM backend (one of):
-  - SGLang + AgentCPM-Explore (search-optimized, recommended)
-  - Ollama + qwen3:8b or higher
-  - LM Studio
-  - OpenAI compatible API
+- For `agent_search`: LLM backend (SGLang/Ollama/LM Studio/OpenAI)
 
 ## License
 
@@ -206,7 +228,7 @@ MIT License
 
 ## Contributing
 
-Portal addition PRs welcome! See `PORTAL_CONFIG` comments in `cdp_search.py`.
+Portal addition PRs welcome! See `PORTAL_CONFIG` in `cdp_search.py`.
 
 ---
 

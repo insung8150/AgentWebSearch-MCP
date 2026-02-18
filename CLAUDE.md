@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LocalWebSearch-CDP is an API-key-free local web search system using Chrome DevTools Protocol (CDP) for parallel web searches with multi-LLM backend support (SGLang, Ollama, LM Studio, OpenAI-compatible).
+AgentWebSearch-MCP is an API-key-free local web search system using Chrome DevTools Protocol (CDP) for parallel web searches. Includes MCP server for Claude Code integration and multi-LLM backend support (SGLang, Ollama, LM Studio, OpenAI-compatible).
 
 ## Commands
 
@@ -15,109 +15,108 @@ python chrome_launcher.py status  # Check status
 python chrome_launcher.py stop    # Stop all
 ```
 
-### Run search agent
+### Run MCP server
 ```bash
-# Default (SGLang backend)
-python search_agent.py "query"
+python mcp_server.py              # stdio mode (Claude Code)
+python mcp_server.py --sse --port 8902  # SSE mode (HTTP)
+```
 
-# Select backend
-python search_agent.py --llm ollama "query"
-python search_agent.py --llm lmstudio --model qwen3-8b "query"
-
-# Search depth
-python search_agent.py "query" --depth simple   # snippets only
-python search_agent.py "query" --depth medium   # fetch top 5 URLs (default)
-python search_agent.py "query" --depth deep     # fetch all URLs
-
-# Interactive mode
-python search_agent.py -i
-
-# List backends
-python search_agent.py --list-backends
+### Run standalone search agent
+```bash
+python search_agent.py "query"                    # Default: SGLang
+python search_agent.py --llm ollama "query"       # Ollama backend
+python search_agent.py --llm lmstudio "query"     # LM Studio
+python search_agent.py "query" --depth deep       # Deep search
+python search_agent.py -i                         # Interactive mode
+python search_agent.py --list-backends            # List backends
 ```
 
 ### Start LLM backends
 ```bash
-# SGLang (recommended)
-./start_sglang.sh
-
-# Ollama
-ollama serve
-
+./start_sglang.sh    # SGLang (recommended)
+ollama serve         # Ollama
 # LM Studio - start via GUI
-```
-
-### Utilities
-```bash
-python clear_tabs.py  # Close excess tabs in all Chrome instances
 ```
 
 ## Architecture
 
 ```
-search_agent.py        Main agent loop (multi-turn tool-use pattern)
+mcp_server.py          MCP server (4 tools)
+       |
+       +-- web_search      → CDP search only
+       +-- fetch_urls      → URL content fetch
+       +-- smart_search    → Search + fetch (depth control)
+       +-- agent_search    → LLM + search + fetch (full agent)
+       |
+search_agent.py        Standalone agent (CLI)
        |
 llm_adapters/          Unified LLM interface
-  base.py              BaseLLMAdapter abstract class, ToolCall, LLMResponse
-  sglang_adapter.py    <tool_call> text format parsing
-  ollama_adapter.py    Function calling + text fallback
-  lmstudio_adapter.py  OpenAI-compatible
-  openai_adapter.py    OpenAI/Azure/proxy
        |
 cdp_search.py          CDP-based parallel portal search
        |
 chrome_launcher.py     Chrome instance lifecycle (ports 9222-9224)
 ```
 
-### Key Flow
-1. Query preprocessing: Korean foreign words → English hints (FOREIGN_WORD_MAP)
-2. LLM adapter calls model with tools (search, fetch_url)
-3. Tool calls parsed: `<tool_call>JSON</tool_call>` (SGLang) or function_calling
-4. CDP search executes parallel queries across Naver/Google/Brave
-5. Results appended to conversation, loop until answer or max turns
-6. Final answer extracted with sources, logged to `outputs/search_agent_logs/`
+### MCP Tools
 
-### Adding a New Portal
-1. Add entry to `PORTAL_CONFIG` in `cdp_search.py` (URL template + JS extraction script)
-2. Add matching entry to `CHROME_INSTANCES` in `chrome_launcher.py` (port + profile path)
+| Tool | Description | LLM Required |
+|------|-------------|--------------|
+| `web_search` | Parallel search Naver/Google/Brave | No |
+| `fetch_urls` | Fetch webpage content | No |
+| `smart_search` | Search + fetch with depth control | No |
+| `agent_search` | Full agentic search with LLM | Yes |
 
-### Adding a New LLM Backend
+### agent_search LLM Backends
+
+| Backend | Description | Recommended |
+|---------|-------------|-------------|
+| `sglang` | AgentCPM-Explore (search-optimized) | ✅ |
+| `ollama` | Local LLM (general purpose) | |
+| `lmstudio` | Local LLM (general purpose) | |
+| `openai` | Paid API | |
+
+## Key Configuration
+
+### mcp_server.py
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `SEARCH_TIMEOUT` | 90s | CDP search timeout |
+| `FETCH_TIMEOUT` | 5s | URL fetch timeout |
+| `MAX_FETCH_URLS` | 10 | Max URLs per fetch |
+
+### search_agent.py
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `LLM_BACKEND` | "sglang" | Default backend |
+| `CURRENT_DEPTH` | "medium" | Default search depth |
+
+## Depth Settings
+
+| Depth | Fetch | Description |
+|-------|-------|-------------|
+| `simple` | 0 | Snippets only (fast) |
+| `medium` | 5 | Top 5 URLs (default) |
+| `deep` | 15 | Top 15 URLs (slow) |
+
+## Chrome Instance Ports
+
+| Portal | Port |
+|--------|------|
+| Naver | 9222 |
+| Google | 9223 |
+| Brave | 9224 |
+
+## Adding a New Portal
+1. Add entry to `PORTAL_CONFIG` in `cdp_search.py`
+2. Add matching entry to `CHROME_INSTANCES` in `chrome_launcher.py`
+
+## Adding a New LLM Backend
 1. Create adapter in `llm_adapters/` extending `BaseLLMAdapter`
 2. Implement: `call()`, `parse_tool_calls()`, `format_tool_result()`
 3. Register in `llm_adapters/__init__.py`
 
-## Key Configuration (search_agent.py)
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `LLM_BACKEND` | "sglang" | Default backend |
-| `SEARCH_TIMEOUT` | 90s | CDP search timeout |
-| `FETCH_TIMEOUT` | 3s | URL fetch timeout |
-| `MAX_SEARCH_QUERIES` | 3 | Queries per search() call |
-| `CURRENT_DEPTH` | "medium" | Default search depth |
-
-## Tool Call Formats
-
-### SGLang (text format)
-```
-<tool_call>
-{"name": "search", "arguments": {"query": ["query1", "query2"]}}
-</tool_call>
-```
-
-### Ollama/LM Studio/OpenAI (function calling)
-Standard OpenAI function_calling format with `tool_calls` in response.
-
-## Chrome Instance Ports
-
-| Portal | Port | Profile |
-|--------|------|---------|
-| Naver | 9222 | /tmp/chrome-naver-profile |
-| Google | 9223 | /tmp/chrome-google-profile |
-| Brave | 9224 | /tmp/chrome-brave-profile |
-
 ## Dependencies
 
-Core: `httpx`, `beautifulsoup4`
-Optional: `trafilatura`, `readability-lxml` (enhanced content extraction)
-Backend-specific: `sglang[all]` (requires CUDA), Ollama, LM Studio installed separately
+Core: `httpx`, `beautifulsoup4`, `websocket-client`, `mcp`
+Optional: `trafilatura`, `readability-lxml`
+Backend-specific: `sglang[all]` (CUDA), Ollama, LM Studio
