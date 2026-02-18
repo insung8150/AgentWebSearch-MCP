@@ -496,7 +496,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         # Auto-detect available backend if not specified
         try:
-            available = detect_available_backends()
+            available = await detect_available_backends()
+            available = [b["name"] for b in available]  # Extract backend names
         except Exception:
             available = []
 
