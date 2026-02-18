@@ -39,6 +39,11 @@ No API keys needed - **just Chrome**.
 - Login sessions persist (cookies saved)
 - Korean portals work (Naver requires real browser)
 
+**Not just search portals!**
+- Works on ANY website: Coupang, Amazon, YouTube, etc.
+- Product search, price comparison, data extraction
+- Any site you can browse manually, this tool can automate
+
 ## Key Benefits
 
 | Feature | Tavily/Brave API | AgentWebSearch-MCP |
