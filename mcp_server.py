@@ -337,9 +337,9 @@ async def list_tools() -> list[Tool]:
                         },
                         "llm": {
                             "type": "string",
-                            "enum": ["sglang", "ollama", "lmstudio", "openai"],
-                            "default": "sglang",
-                            "description": "LLM backend. sglang(recommended, search-optimized), ollama(general), lmstudio(general), openai(paid)"
+                            "enum": ["auto", "sglang", "ollama", "lmstudio", "openai"],
+                            "default": "auto",
+                            "description": "LLM backend. auto(use available), sglang(recommended), ollama, lmstudio, openai(paid)"
                         },
                         "model": {
                             "type": "string",
@@ -487,26 +487,36 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text="Error: agent_search requires llm_adapters and search_agent modules")]
 
         query = arguments.get("query", "")
-        llm = arguments.get("llm", "sglang")
+        llm = arguments.get("llm", "")  # Empty = auto-detect
         model = arguments.get("model", "")
         depth = arguments.get("depth", "medium")
 
         if not query:
             return [TextContent(type="text", text="Error: query is required")]
 
+        # Auto-detect available backend if not specified
+        try:
+            available = detect_available_backends()
+        except Exception:
+            available = []
+
+        if not llm or llm == "auto":
+            # Priority: sglang > lmstudio > ollama > openai
+            priority = ["sglang", "lmstudio", "ollama", "openai"]
+            for backend in priority:
+                if backend in available:
+                    llm = backend
+                    break
+            if not llm:
+                return [TextContent(type="text", text="Error: No LLM backend available. Start sglang, ollama, or lmstudio first.")]
+        elif llm not in available:
+            available_list = ", ".join(available) if available else "none"
+            return [TextContent(type="text", text=f"Error: {llm} backend not available. Available: {available_list}")]
+
         # LLM backend config
         backend_cfg = LLM_BACKENDS.get(llm, LLM_BACKENDS["sglang"])
         url = backend_cfg["url"]
         model_name = model if model else backend_cfg["model"]
-
-        # Check backend availability
-        try:
-            available = detect_available_backends()
-            if llm not in available:
-                available_list = ", ".join(available) if available else "none"
-                return [TextContent(type="text", text=f"Error: {llm} backend not available. Available: {available_list}")]
-        except Exception as e:
-            pass  # Continue even if check fails
 
         # Configure search_agent module
         try:
