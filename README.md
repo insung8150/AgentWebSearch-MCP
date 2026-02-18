@@ -22,6 +22,7 @@ No API keys needed - **just Chrome**.
 - **Korean support** - Naver integrated search included
 - **Multi-LLM support** - SGLang, Ollama, LM Studio, OpenAI-compatible APIs
 - **Bot detection bypass** - Session persistence + stealth flags
+- **CAPTCHA resistant** - Real browser sessions avoid most CAPTCHA challenges
 
 ## Installation
 
