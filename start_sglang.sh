@@ -1,21 +1,36 @@
 #!/bin/bash
 # AgentCPM-Explore SGLang Server Start Script
-# Runs on RTX 3080 Ti (GPU 1) - workaround for Blackwell compatibility issues
+#
+# Prerequisites:
+#   pip install sglang[all]
+#   Download model: https://huggingface.co/openbmb/AgentCPM-Explore
+#
+# Usage:
+#   ./start_sglang.sh
+#   MODEL_PATH=/path/to/model ./start_sglang.sh
+#   GPU_ID=1 ./start_sglang.sh
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Configuration - modify these as needed
+MODEL_PATH="${MODEL_PATH:-/path/to/AgentCPM-Explore}"  # <-- SET YOUR MODEL PATH
+GPU_ID="${GPU_ID:-0}"
+PORT="${PORT:-30001}"
 LOG_FILE="/tmp/sglang_agentcpm.log"
-PORT=30001
 
-cd "$SCRIPT_DIR"
-source venv/bin/activate
+# Check if model path exists
+if [ ! -d "$MODEL_PATH" ]; then
+    echo "ERROR: Model path not found: $MODEL_PATH"
+    echo ""
+    echo "Please set MODEL_PATH environment variable or edit this script."
+    echo "Example: MODEL_PATH=/home/user/models/AgentCPM-Explore ./start_sglang.sh"
+    exit 1
+fi
 
-echo "Starting AgentCPM-Explore on port $PORT (GPU 1: RTX 3080 Ti)..."
+echo "Starting AgentCPM-Explore on port $PORT (GPU $GPU_ID)..."
+echo "Model: $MODEL_PATH"
 echo "Log: $LOG_FILE"
 
-# Run on GPU 1 (RTX 3080 Ti, SM 8.6) with triton backend
-# Blackwell GPU (SM 12.0) causes flashinfer JIT failure as nvcc doesn't support it
-CUDA_VISIBLE_DEVICES=1 nohup python -m sglang.launch_server \
-    --model-path /mnt/nvme_4raid/model/AgentCPM-Explore \
+CUDA_VISIBLE_DEVICES=$GPU_ID nohup python -m sglang.launch_server \
+    --model-path "$MODEL_PATH" \
     --port $PORT \
     --host 0.0.0.0 \
     --attention-backend triton \

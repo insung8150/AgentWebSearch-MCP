@@ -24,7 +24,7 @@ API 키 발급 없이, **Chrome만 있으면 됩니다.**
 
 ## 설치
 
-### 1. 의존성 설치
+### 1. 기본 의존성 설치
 ```bash
 pip install -r requirements.txt
 ```
@@ -35,19 +35,33 @@ pip install -r requirements.txt
 python chrome_launcher.py
 ```
 
-### 3. LLM 백엔드 시작
+### 3. LLM 백엔드 선택 및 설치
 
 LocalWebSearch-CDP는 다양한 LLM 백엔드를 지원합니다:
 
+#### 옵션 A: Ollama (가장 쉬움, 권장)
 ```bash
-# 옵션 1: SGLang + AgentCPM-Explore (기본, 검색 특화)
-./start_sglang.sh
-
-# 옵션 2: Ollama
+# Ollama 설치: https://ollama.ai
+ollama pull qwen3:8b
 ollama serve
+```
 
-# 옵션 3: LM Studio
-# LM Studio 앱에서 서버 시작
+#### 옵션 B: LM Studio
+```bash
+# LM Studio 설치: https://lmstudio.ai
+# 앱에서 모델 로드 후 서버 시작
+```
+
+#### 옵션 C: SGLang + AgentCPM-Explore (검색 특화, 고급)
+```bash
+# 1. SGLang 설치 (CUDA 필요)
+pip install sglang[all]
+
+# 2. AgentCPM-Explore 모델 다운로드
+# https://huggingface.co/openbmb/AgentCPM-Explore
+
+# 3. start_sglang.sh에서 모델 경로 수정 후 실행
+./start_sglang.sh
 ```
 
 ## 사용법
