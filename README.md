@@ -1,156 +1,156 @@
 # LocalWebSearch-CDP
 
-**API 키 없는 로컬 WebSearch**
+**Local WebSearch without API keys**
 
-로컬 LLM (Ollama, LM Studio)에서 WebSearch 기능이 필요하신가요?
-API 키 발급 없이, **Chrome만 있으면 됩니다.**
+Need WebSearch for your local LLM (Ollama, LM Studio)?
+No API keys needed - **just Chrome**.
 
-## 핵심 가치
+## Key Benefits
 
-| 항목 | Tavily/Brave API | LocalWebSearch-CDP |
-|------|------------------|---------------------|
-| API 키 | **필요** | **불필요** |
-| 비용 | 유료/제한 | **무료** |
-| 설치 난이도 | 복잡 | **Chrome만 설치** |
-| 한국 포털 | 제한적 | **네이버 지원** |
+| Feature | Tavily/Brave API | LocalWebSearch-CDP |
+|---------|------------------|---------------------|
+| API Key | **Required** | **Not needed** |
+| Cost | Paid/Limited | **Free** |
+| Setup | Complex | **Just install Chrome** |
+| Korean Portals | Limited | **Naver supported** |
 
-## 특징
+## Features
 
-- **API 키 불필요** - Chrome CDP (DevTools Protocol) 직접 제어
-- **병렬 검색** - 크롬 3개 인스턴스로 네이버/구글/Brave 동시 검색
-- **한국어 지원** - 네이버 통합검색 포함
-- **멀티 LLM 지원** - SGLang, Ollama, LM Studio, OpenAI-호환 API
-- **봇 탐지 회피** - 세션 유지 + 탐지 회피 플래그
+- **No API keys** - Direct Chrome CDP (DevTools Protocol) control
+- **Parallel search** - 3 Chrome instances for Naver/Google/Brave simultaneously
+- **Korean support** - Naver integrated search included
+- **Multi-LLM support** - SGLang, Ollama, LM Studio, OpenAI-compatible APIs
+- **Bot detection bypass** - Session persistence + stealth flags
 
-## 설치
+## Installation
 
-### 1. 기본 의존성 설치
+### 1. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Chrome 시작 (디버깅 모드)
+### 2. Start Chrome (debugging mode)
 ```bash
-# 크롬 3개 인스턴스 자동 시작
+# Auto-start 3 Chrome instances
 python chrome_launcher.py
 ```
 
-### 3. LLM 백엔드 선택 및 설치
+### 3. Choose and install LLM backend
 
-LocalWebSearch-CDP는 다양한 LLM 백엔드를 지원합니다:
+LocalWebSearch-CDP supports multiple LLM backends:
 
-#### 옵션 A: SGLang + AgentCPM-Explore (검색 특화, 권장 ⭐)
+#### Option A: SGLang + AgentCPM-Explore (Search-optimized, Recommended)
 ```bash
-# 1. SGLang 설치 (CUDA 필요)
+# 1. Install SGLang (CUDA required)
 pip install sglang[all]
 
-# 2. AgentCPM-Explore 모델 다운로드 (~8GB)
+# 2. Download AgentCPM-Explore model (~8GB)
 # https://huggingface.co/openbmb/AgentCPM-Explore
 
-# 3. start_sglang.sh에서 모델 경로 수정 후 실행
+# 3. Edit MODEL_PATH in start_sglang.sh, then run
 ./start_sglang.sh
 ```
-> AgentCPM-Explore는 검색 에이전트에 특화된 4B 모델입니다.
-> 다양한 검색 쿼리(한글/영어, 다중 관점)를 자동 생성합니다.
+> AgentCPM-Explore is a 4B model specialized for search agents.
+> Automatically generates diverse search queries (Korean/English, multiple perspectives).
 
-#### 옵션 B: Ollama (가장 쉬움)
+#### Option B: Ollama (Easiest)
 ```bash
-# Ollama 설치: https://ollama.ai
+# Install Ollama: https://ollama.ai
 ollama pull qwen3:8b
 ollama serve
 ```
 
-#### 옵션 C: LM Studio
+#### Option C: LM Studio
 ```bash
-# LM Studio 설치: https://lmstudio.ai
-# 앱에서 모델 로드 후 서버 시작
+# Install LM Studio: https://lmstudio.ai
+# Load model and start server in the app
 ```
 
-## 사용법
+## Usage
 
 ```bash
-# 단일 질문 (기본: SGLang)
-python search_agent.py "검색어"
+# Single query (default: SGLang)
+python search_agent.py "search query"
 
-# LLM 백엔드 선택
-python search_agent.py --llm ollama "검색어"
-python search_agent.py --llm lmstudio "검색어"
-python search_agent.py --llm lmstudio --model qwen3-8b "검색어"
+# Select LLM backend
+python search_agent.py --llm ollama "search query"
+python search_agent.py --llm lmstudio "search query"
+python search_agent.py --llm lmstudio --model qwen3-8b "search query"
 
-# 사용 가능한 백엔드 확인
+# List available backends
 python search_agent.py --list-backends
 
-# 검색 깊이 설정
-python search_agent.py "검색어" --depth simple   # snippet만 (빠름)
-python search_agent.py "검색어" --depth medium   # 상위 5개 URL fetch
-python search_agent.py "검색어" --depth deep     # 전체 URL fetch (느림)
+# Search depth settings
+python search_agent.py "query" --depth simple   # snippets only (fast)
+python search_agent.py "query" --depth medium   # fetch top 5 URLs
+python search_agent.py "query" --depth deep     # fetch all URLs (slow)
 
-# 대화형 모드
+# Interactive mode
 python search_agent.py -i
 ```
 
-## 아키텍처
+## Architecture
 
 ```
-사용자 질문
-    ↓
+User Query
+    |
 LLM Adapter Layer
-├── SGLang (port 30001) - AgentCPM-Explore (기본)
-├── Ollama (port 11434) - qwen3:8b 등
-├── LM Studio (port 1234) - 로드된 모델
-└── OpenAI (호환 API)
-    ↓
-CDP Search (병렬)
-├── Chrome:9222 → 네이버
-├── Chrome:9223 → 구글
-└── Chrome:9224 → Brave
-    ↓
-최종 답변 + 출처
++-- SGLang (port 30001) - AgentCPM-Explore (default)
++-- Ollama (port 11434) - qwen3:8b etc.
++-- LM Studio (port 1234) - loaded model
++-- OpenAI (compatible API)
+    |
+CDP Search (parallel)
++-- Chrome:9222 -> Naver
++-- Chrome:9223 -> Google
++-- Chrome:9224 -> Brave
+    |
+Final Answer + Sources
 ```
 
-## 파일 구조
+## File Structure
 
 ```
 LocalWebSearch-CDP/
-├── search_agent.py       # 메인 에이전트
-├── cdp_search.py         # CDP 병렬 검색
-├── chrome_launcher.py    # 크롬 인스턴스 관리
-├── llm_adapters/         # 멀티 LLM 지원
-│   ├── base.py           # 공통 인터페이스
-│   ├── sglang_adapter.py # SGLang (<tool_call> 포맷)
-│   ├── ollama_adapter.py # Ollama (function calling)
-│   ├── lmstudio_adapter.py
-│   └── openai_adapter.py
-├── start_sglang.sh       # SGLang 서버 시작
-├── clear_tabs.py         # 탭 정리 유틸리티
-└── clear_tabs_cdp.sh     # 탭 정리 스크립트
++-- search_agent.py       # Main agent
++-- cdp_search.py         # CDP parallel search
++-- chrome_launcher.py    # Chrome instance manager
++-- llm_adapters/         # Multi-LLM support
+|   +-- base.py           # Common interface
+|   +-- sglang_adapter.py # SGLang (<tool_call> format)
+|   +-- ollama_adapter.py # Ollama (function calling)
+|   +-- lmstudio_adapter.py
+|   +-- openai_adapter.py
++-- start_sglang.sh       # SGLang server startup
++-- clear_tabs.py         # Tab cleanup utility
++-- clear_tabs_cdp.sh     # Tab cleanup script
 ```
 
-## 성능
+## Performance
 
-| 모드 | 시간 | 토큰 수 |
-|------|------|---------|
-| simple | ~35초 | ~3K |
-| medium | ~50초 | ~17K |
-| deep | ~170초 | ~77K |
+| Mode | Time | Tokens |
+|------|------|--------|
+| simple | ~35s | ~3K |
+| medium | ~50s | ~17K |
+| deep | ~170s | ~77K |
 
-## 요구사항
+## Requirements
 
 - Python 3.10+
 - Chrome/Chromium
-- LLM 백엔드 (아래 중 하나):
-  - SGLang + AgentCPM-Explore (검색 특화, 권장)
-  - Ollama + qwen3:8b 이상
+- LLM backend (one of):
+  - SGLang + AgentCPM-Explore (search-optimized, recommended)
+  - Ollama + qwen3:8b or higher
   - LM Studio
-  - OpenAI 호환 API
+  - OpenAI compatible API
 
-## 라이선스
+## License
 
 MIT License
 
-## 기여
+## Contributing
 
-포털 추가 PR 환영합니다! `cdp_search.py`의 `PORTAL_CONFIG` 주석을 참고하세요.
+Portal addition PRs welcome! See `PORTAL_CONFIG` comments in `cdp_search.py`.
 
 ---
 
