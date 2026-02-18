@@ -113,6 +113,7 @@ class SearchState:
             self.current_phase = "CDP search"
             self.progress = 0
             self._cancel_requested = False
+            self._save_to_file()
             return self.search_id
 
     async def add_search_results(self, results: list[dict]):
@@ -120,6 +121,7 @@ class SearchState:
         async with self._lock:
             self.search_results.extend(results)
             self.progress = 30
+            self._save_to_file()
 
     async def start_fetching(self, total_urls: int):
         """Transition to fetching phase"""
@@ -127,6 +129,7 @@ class SearchState:
             self.status = "fetching"
             self.current_phase = f"Fetching 0/{total_urls} URLs"
             self.progress = 40
+            self._save_to_file()
 
     async def add_fetched_content(self, content: dict, current: int, total: int):
         """Add fetched content"""
@@ -135,6 +138,7 @@ class SearchState:
                 self.fetched_contents.append(content)
             self.current_phase = f"Fetching {current}/{total} URLs"
             self.progress = 40 + int(50 * current / total)
+            self._save_to_file()
 
     async def complete(self):
         """Mark search as completed"""
@@ -142,6 +146,7 @@ class SearchState:
             self.status = "completed"
             self.current_phase = "Done"
             self.progress = 100
+            self._save_to_file()
 
     async def cancel(self):
         """Request cancellation"""
@@ -149,10 +154,15 @@ class SearchState:
             self._cancel_requested = True
             self.status = "cancelled"
             self.current_phase = "Cancelled by user"
+            self._save_to_file()
 
     @property
     def is_cancelled(self) -> bool:
         return self._cancel_requested
+
+    def _save_to_file(self):
+        """Save current state to file"""
+        _save_state_to_file(self.get_partial_results())
 
     def get_partial_results(self) -> dict:
         """Get current partial results"""
@@ -169,6 +179,28 @@ class SearchState:
             "search_results": self.search_results,
             "fetched_contents": self.fetched_contents,
         }
+
+
+# Search state persistence file
+SEARCH_STATE_FILE = "/tmp/agentwebsearch_state.json"
+
+
+def _save_state_to_file(state: dict):
+    """Save search state to file for recovery after process restart"""
+    try:
+        with open(SEARCH_STATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2, default=str)
+    except Exception:
+        pass
+
+
+def _load_state_from_file() -> dict:
+    """Load previous search state from file"""
+    try:
+        with open(SEARCH_STATE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 # Global search state
@@ -629,31 +661,47 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "get_search_status":
         include_results = arguments.get("include_results", True)
-        state = _search_state.get_partial_results()
 
+        # Try current in-memory state first, then fall back to file
+        state = _search_state.get_partial_results()
+        if not state.get("search_id"):
+            # No active search, try loading from file (previous session)
+            state = _load_state_from_file()
+            if state:
+                state["_recovered_from_file"] = True
+
+        if not state:
+            return [TextContent(type="text", text="No search data available (no active or previous search found).")]
+
+        recovered = state.get("_recovered_from_file", False)
         output = [
-            f"## Search Status",
-            f"- **Search ID**: {state['search_id'] or 'None'}",
-            f"- **Query**: {state['query'] or 'N/A'}",
-            f"- **Status**: {state['status']}",
-            f"- **Phase**: {state['phase']}",
-            f"- **Progress**: {state['progress']}%",
-            f"- **Elapsed**: {state['elapsed_seconds']}s",
-            f"- **Search Results**: {state['search_results_count']} items",
-            f"- **Fetched Contents**: {state['fetched_contents_count']} items",
+            f"## Search Status" + (" (recovered from previous session)" if recovered else ""),
+            f"- **Search ID**: {state.get('search_id') or 'None'}",
+            f"- **Query**: {state.get('query') or 'N/A'}",
+            f"- **Status**: {state.get('status', 'unknown')}",
+            f"- **Phase**: {state.get('phase', 'unknown')}",
+            f"- **Progress**: {state.get('progress', 0)}%",
+            f"- **Elapsed**: {state.get('elapsed_seconds', 0)}s",
+            f"- **Search Results**: {state.get('search_results_count', len(state.get('search_results', [])))} items",
+            f"- **Fetched Contents**: {state.get('fetched_contents_count', len(state.get('fetched_contents', [])))} items",
             ""
         ]
+        if recovered:
+            output.insert(1, f"*This data was recovered from a previous session that was interrupted.*\n")
 
-        if include_results and state['search_results']:
+        search_results = state.get('search_results', [])
+        fetched_contents = state.get('fetched_contents', [])
+
+        if include_results and search_results:
             output.append("### Partial Search Results\n")
-            for i, r in enumerate(state['search_results'][:10], 1):
+            for i, r in enumerate(search_results[:10], 1):
                 output.append(f"{i}. **{r.get('title', 'No title')}**")
                 output.append(f"   URL: {r.get('url', '')}")
                 output.append(f"   {r.get('snippet', '')[:150]}...\n")
 
-        if include_results and state['fetched_contents']:
+        if include_results and fetched_contents:
             output.append("### Partial Fetched Contents\n")
-            for c in state['fetched_contents']:
+            for c in fetched_contents:
                 output.append(f"**{c.get('title', 'No title')}**")
                 output.append(f"URL: {c.get('url', '')}")
                 output.append(f"\n{c.get('content', '')[:500]}...\n")
