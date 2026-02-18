@@ -17,8 +17,9 @@ import asyncio
 import json
 import re
 import sys
+import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 try:
@@ -80,6 +81,129 @@ LOW_QUALITY_DOMAINS = {
 
 # Create MCP server
 server = Server("agentwebsearch-mcp")
+
+
+# ============================================================
+# Search State Management (for partial results / cancel)
+# ============================================================
+class SearchState:
+    """Manages ongoing search state for partial results"""
+
+    def __init__(self):
+        self.search_id: Optional[str] = None
+        self.query: str = ""
+        self.status: str = "idle"  # idle, searching, fetching, completed, cancelled
+        self.started_at: Optional[datetime] = None
+        self.search_results: list[dict] = []
+        self.fetched_contents: list[dict] = []
+        self.current_phase: str = ""
+        self.progress: int = 0  # 0-100
+        self._cancel_requested: bool = False
+        self._lock = asyncio.Lock()
+
+    async def start(self, query: str) -> str:
+        """Start new search, return search_id"""
+        async with self._lock:
+            self.search_id = str(uuid.uuid4())[:8]
+            self.query = query
+            self.status = "searching"
+            self.started_at = datetime.now()
+            self.search_results = []
+            self.fetched_contents = []
+            self.current_phase = "CDP search"
+            self.progress = 0
+            self._cancel_requested = False
+            return self.search_id
+
+    async def add_search_results(self, results: list[dict]):
+        """Add search results"""
+        async with self._lock:
+            self.search_results.extend(results)
+            self.progress = 30
+
+    async def start_fetching(self, total_urls: int):
+        """Transition to fetching phase"""
+        async with self._lock:
+            self.status = "fetching"
+            self.current_phase = f"Fetching 0/{total_urls} URLs"
+            self.progress = 40
+
+    async def add_fetched_content(self, content: dict, current: int, total: int):
+        """Add fetched content"""
+        async with self._lock:
+            if "error" not in content:
+                self.fetched_contents.append(content)
+            self.current_phase = f"Fetching {current}/{total} URLs"
+            self.progress = 40 + int(50 * current / total)
+
+    async def complete(self):
+        """Mark search as completed"""
+        async with self._lock:
+            self.status = "completed"
+            self.current_phase = "Done"
+            self.progress = 100
+
+    async def cancel(self):
+        """Request cancellation"""
+        async with self._lock:
+            self._cancel_requested = True
+            self.status = "cancelled"
+            self.current_phase = "Cancelled by user"
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._cancel_requested
+
+    def get_partial_results(self) -> dict:
+        """Get current partial results"""
+        elapsed = (datetime.now() - self.started_at).total_seconds() if self.started_at else 0
+        return {
+            "search_id": self.search_id,
+            "query": self.query,
+            "status": self.status,
+            "phase": self.current_phase,
+            "progress": self.progress,
+            "elapsed_seconds": round(elapsed, 1),
+            "search_results_count": len(self.search_results),
+            "fetched_contents_count": len(self.fetched_contents),
+            "search_results": self.search_results,
+            "fetched_contents": self.fetched_contents,
+        }
+
+
+# Global search state
+_search_state = SearchState()
+
+
+def _format_partial_results(reason: str) -> str:
+    """Format partial results for display"""
+    state = _search_state.get_partial_results()
+    output = [
+        f"## {reason}",
+        f"- **Query**: {state['query']}",
+        f"- **Progress**: {state['progress']}%",
+        f"- **Elapsed**: {state['elapsed_seconds']}s",
+        f"- **Search Results**: {state['search_results_count']} items",
+        f"- **Fetched Contents**: {state['fetched_contents_count']} items",
+        ""
+    ]
+
+    if state['search_results']:
+        output.append("### Search Results (partial)\n")
+        for i, r in enumerate(state['search_results'][:10], 1):
+            output.append(f"{i}. **{r.get('title', 'No title')}**")
+            output.append(f"   URL: {r.get('url', '')}")
+            output.append(f"   {r.get('snippet', '')[:150]}...\n")
+
+    if state['fetched_contents']:
+        output.append("### Fetched Contents (partial)\n")
+        for c in state['fetched_contents']:
+            output.append(f"**{c.get('title', 'No title')}**")
+            output.append(f"URL: {c.get('url', '')}")
+            output.append(f"\n{c.get('content', '')[:1000]}...\n")
+            output.append("---\n")
+
+    return "\n".join(output)
 
 
 def _normalize_url(url: str) -> str:
@@ -272,7 +396,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="smart_search",
-            description="Search + fetch top URLs in one call. Control search depth: simple(snippets only), medium(fetch top 5), deep(fetch top 15).",
+            description="Search + fetch top URLs in one call. Control search depth: simple(snippets only), medium(fetch top 5), deep(fetch top 15). Supports partial results - use get_search_status to check progress or cancel_search to stop and get partial results.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -294,6 +418,30 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["query"]
+            }
+        ),
+        Tool(
+            name="get_search_status",
+            description="Get current search progress and partial results. Use this to check ongoing search status or retrieve results so far when search is taking too long.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "include_results": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Include partial search results in response"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="cancel_search",
+            description="Cancel ongoing search and return partial results collected so far. Use when search is taking too long and you want to see what has been found.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
             }
         ),
     ]
@@ -411,6 +559,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if not query:
             return [TextContent(type="text", text="Error: query is required")]
 
+        # Start search state tracking
+        search_id = await _search_state.start(query)
+
         # Get depth config
         depth_cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
         max_fetch = depth_cfg["max_fetch"]
@@ -422,12 +573,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 timeout=SEARCH_TIMEOUT
             )
         except asyncio.TimeoutError:
-            return [TextContent(type="text", text=f"Search timeout ({SEARCH_TIMEOUT}s)")]
+            partial = _search_state.get_partial_results()
+            await _search_state.complete()
+            return [TextContent(type="text", text=f"Search timeout ({SEARCH_TIMEOUT}s). Partial results: {partial['search_results_count']} items found.")]
+
+        if _search_state.is_cancelled:
+            return [TextContent(type="text", text=_format_partial_results("Cancelled during search phase"))]
 
         if not results:
+            await _search_state.complete()
             return [TextContent(type="text", text=f"No results for '{query}'")]
 
-        output = [f"## Smart Search: '{query}' (depth={depth})\n"]
+        # Store search results
+        await _search_state.add_search_results(results)
+
+        output = [f"## Smart Search: '{query}' (depth={depth}) [id: {search_id}]\n"]
         output.append("### Search Results\n")
         for i, r in enumerate(results[:10], 1):
             output.append(f"{i}. **{r['title']}**")
@@ -439,23 +599,74 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             urls_to_fetch = [r['url'] for r in results[:max_fetch] if not _is_low_quality(r['url'])]
 
             if urls_to_fetch:
+                await _search_state.start_fetching(len(urls_to_fetch))
                 output.append(f"\n### Detailed Content ({len(urls_to_fetch)} URLs)\n")
-                tasks = [_fetch_url_content(url) for url in urls_to_fetch]
-                fetched = await asyncio.gather(*tasks, return_exceptions=True)
 
-                for r in fetched:
-                    if isinstance(r, Exception):
+                # Fetch one by one for cancellation support
+                for idx, url in enumerate(urls_to_fetch, 1):
+                    if _search_state.is_cancelled:
+                        output.append(f"\n*[Cancelled after fetching {idx-1}/{len(urls_to_fetch)} URLs]*\n")
+                        break
+
+                    try:
+                        content = await asyncio.wait_for(_fetch_url_content(url), timeout=FETCH_TIMEOUT)
+                        await _search_state.add_fetched_content(content, idx, len(urls_to_fetch))
+
+                        if isinstance(content, dict) and "error" not in content:
+                            output.append(f"**{content.get('title', 'No title')}**")
+                            output.append(f"URL: {content['url']}")
+                            output.append(f"\n{content['content']}\n")
+                            output.append("---\n")
+                    except asyncio.TimeoutError:
                         continue
-                    if not isinstance(r, dict) or "error" in r:
+                    except Exception:
                         continue
-                    output.append(f"**{r.get('title', 'No title')}**")
-                    output.append(f"URL: {r['url']}")
-                    output.append(f"\n{r['content']}\n")
-                    output.append("---\n")
         else:
             output.append("\n*[simple mode: snippets only, no URL fetch]*\n")
 
+        await _search_state.complete()
         return [TextContent(type="text", text="\n".join(output))]
+
+    elif name == "get_search_status":
+        include_results = arguments.get("include_results", True)
+        state = _search_state.get_partial_results()
+
+        output = [
+            f"## Search Status",
+            f"- **Search ID**: {state['search_id'] or 'None'}",
+            f"- **Query**: {state['query'] or 'N/A'}",
+            f"- **Status**: {state['status']}",
+            f"- **Phase**: {state['phase']}",
+            f"- **Progress**: {state['progress']}%",
+            f"- **Elapsed**: {state['elapsed_seconds']}s",
+            f"- **Search Results**: {state['search_results_count']} items",
+            f"- **Fetched Contents**: {state['fetched_contents_count']} items",
+            ""
+        ]
+
+        if include_results and state['search_results']:
+            output.append("### Partial Search Results\n")
+            for i, r in enumerate(state['search_results'][:10], 1):
+                output.append(f"{i}. **{r.get('title', 'No title')}**")
+                output.append(f"   URL: {r.get('url', '')}")
+                output.append(f"   {r.get('snippet', '')[:150]}...\n")
+
+        if include_results and state['fetched_contents']:
+            output.append("### Partial Fetched Contents\n")
+            for c in state['fetched_contents']:
+                output.append(f"**{c.get('title', 'No title')}**")
+                output.append(f"URL: {c.get('url', '')}")
+                output.append(f"\n{c.get('content', '')[:500]}...\n")
+                output.append("---\n")
+
+        return [TextContent(type="text", text="\n".join(output))]
+
+    elif name == "cancel_search":
+        if _search_state.status == "idle":
+            return [TextContent(type="text", text="No search in progress to cancel.")]
+
+        await _search_state.cancel()
+        return [TextContent(type="text", text=_format_partial_results("Search cancelled by user"))]
 
     elif name == "agentcpm":
         if not HAS_LLM_ADAPTERS or not HAS_SEARCH_AGENT:

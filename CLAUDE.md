@@ -66,7 +66,17 @@ chrome_launcher.py     Chrome instance lifecycle (ports 9222-9224)
 | `web_search` | Parallel search Naver/Google/Brave | No |
 | `fetch_urls` | Fetch webpage content | No |
 | `smart_search` | Search + fetch with depth control | No |
+| `get_search_status` | Check progress and get partial results | No |
+| `cancel_search` | Cancel search and get partial results | No |
 | `agentcpm` | Agentic search with AgentCPM-Explore | Yes (SGLang) |
+
+### Partial Results Support
+
+When search takes too long:
+1. Call `get_search_status` to see progress and partial results
+2. Call `cancel_search` to stop and return what's been collected
+
+This is useful when deep searches or URL fetches are slow.
 
 ### agentcpm Tool
 

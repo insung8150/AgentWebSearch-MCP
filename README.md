@@ -91,6 +91,8 @@ python mcp_server.py --sse --port 8902
 | `web_search` | Search Naver/Google/Brave in parallel | No |
 | `fetch_urls` | Fetch webpage content from URLs | No |
 | `smart_search` | Search + auto-fetch with depth control | No |
+| `get_search_status` | Check search progress and get partial results | No |
+| `cancel_search` | Cancel ongoing search and get partial results | No |
 | `agentcpm` | Agentic search with AgentCPM-Explore (SGLang) | Yes |
 
 ### Tool Parameters
@@ -119,6 +121,17 @@ Uses **AgentCPM-Explore** model (4B, OpenBMB/THUNLP) via SGLang to plan search q
 - AgentCPM-Explore model loaded
 
 **First time setup:** Model loading takes ~30-45 seconds. Use `smart_search` if you don't have SGLang set up.
+
+#### `get_search_status` / `cancel_search`
+
+**Partial results support**: When search takes too long, you can:
+1. Call `get_search_status` to check progress and see results collected so far
+2. Call `cancel_search` to stop the search and return partial results
+
+| Tool | Description |
+|------|-------------|
+| `get_search_status` | Returns: status, progress %, elapsed time, partial search results, partial fetched contents |
+| `cancel_search` | Cancels ongoing search and returns all partial results collected |
 
 > **Why AgentCPM-Explore?** Trained specifically for search agent tasks by OpenBMB/THUNLP. Generates diverse queries and handles tool calling better than general-purpose models.
 
