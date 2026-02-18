@@ -39,10 +39,10 @@ No API keys needed - **just Chrome**.
 - Login sessions persist (cookies saved)
 - Korean portals work (Naver requires real browser)
 
-**Not just search portals!**
-- Works on ANY website: Coupang, Amazon, YouTube, etc.
-- Product search, price comparison, data extraction
-- Any site you can browse manually, this tool can automate
+**Extensible to other sites**
+- Currently configured for search portals (Naver, Google, Brave)
+- Can be extended to other sites by adding portal config
+- Each site needs its own Chrome instance and session
 
 ## Key Benefits
 
