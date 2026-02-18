@@ -24,3 +24,9 @@ node_modules/
 에이젼틱*.md
 추가*.md
 계획*.md
+
+# Virtual environment
+venv/
+.venv/
+__pycache__/
+*.pyc
