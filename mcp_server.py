@@ -43,6 +43,13 @@ MAX_FETCH_URLS = 10
 MAX_CONTENT_LENGTH = 8000
 MIN_CONTENT_LENGTH = 200
 
+# 검색 깊이 설정
+DEPTH_CONFIG = {
+    "simple": {"fetch_enabled": False, "max_fetch": 0, "description": "snippets만 (빠름)"},
+    "medium": {"fetch_enabled": True, "max_fetch": 5, "description": "상위 5개 URL fetch (기본)"},
+    "deep": {"fetch_enabled": True, "max_fetch": 15, "description": "상위 15개 URL fetch (느림)"},
+}
+
 # 저품질 도메인 필터
 LOW_QUALITY_DOMAINS = {
     "blog.naver.com", "m.blog.naver.com", "post.naver.com",
@@ -244,7 +251,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="smart_search",
-            description="검색 + 주요 URL 내용 가져오기를 한 번에 수행합니다. 검색 결과에서 상위 URL의 전체 내용을 자동으로 가져옵니다.",
+            description="검색 + 주요 URL 내용 가져오기를 한 번에 수행합니다. depth로 검색 깊이를 조절합니다: simple(snippets만), medium(상위5개 fetch), deep(상위15개 fetch).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -252,12 +259,11 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "검색 쿼리"
                     },
-                    "fetch_top_n": {
-                        "type": "integer",
-                        "default": 3,
-                        "minimum": 0,
-                        "maximum": 5,
-                        "description": "내용을 가져올 상위 결과 수 (0=검색만)"
+                    "depth": {
+                        "type": "string",
+                        "enum": ["simple", "medium", "deep"],
+                        "default": "medium",
+                        "description": "검색 깊이: simple(snippets만, 빠름), medium(상위 5개 URL fetch, 기본), deep(상위 15개 URL fetch, 느림)"
                     },
                     "portal": {
                         "type": "string",
@@ -341,11 +347,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "smart_search":
         query = arguments.get("query", "")
-        fetch_top_n = arguments.get("fetch_top_n", 3)
+        depth = arguments.get("depth", "medium")
         portal = arguments.get("portal", "all")
 
         if not query:
             return [TextContent(type="text", text="Error: query is required")]
+
+        # depth 설정 가져오기
+        depth_cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
+        max_fetch = depth_cfg["max_fetch"]
 
         # 1. 검색
         try:
@@ -359,31 +369,33 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if not results:
             return [TextContent(type="text", text=f"No results for '{query}'")]
 
-        output = [f"## Smart Search: '{query}'\n"]
+        output = [f"## Smart Search: '{query}' (depth={depth})\n"]
         output.append("### Search Results\n")
         for i, r in enumerate(results[:10], 1):
             output.append(f"{i}. **{r['title']}**")
             output.append(f"   URL: {r['url']}")
             output.append(f"   ({r['source']}) {r['snippet']}\n")
 
-        # 2. 상위 N개 URL 내용 가져오기
-        if fetch_top_n > 0:
-            urls_to_fetch = [r['url'] for r in results[:fetch_top_n] if not _is_low_quality(r['url'])]
+        # 2. depth에 따라 URL 내용 가져오기
+        if depth_cfg["fetch_enabled"] and max_fetch > 0:
+            urls_to_fetch = [r['url'] for r in results[:max_fetch] if not _is_low_quality(r['url'])]
 
             if urls_to_fetch:
-                output.append("\n### Detailed Content\n")
+                output.append(f"\n### Detailed Content ({len(urls_to_fetch)} URLs)\n")
                 tasks = [_fetch_url_content(url) for url in urls_to_fetch]
                 fetched = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for r in fetched:
                     if isinstance(r, Exception):
                         continue
-                    if "error" in r:
+                    if not isinstance(r, dict) or "error" in r:
                         continue
                     output.append(f"**{r.get('title', 'No title')}**")
                     output.append(f"URL: {r['url']}")
                     output.append(f"\n{r['content']}\n")
                     output.append("---\n")
+        else:
+            output.append("\n*[simple mode: snippets only, no URL fetch]*\n")
 
         return [TextContent(type="text", text="\n".join(output))]
 
