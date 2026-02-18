@@ -19,6 +19,7 @@ No API keys needed - **just Chrome**.
 
 - **No API keys** - Direct Chrome CDP (DevTools Protocol) control
 - **MCP Server** - Use as Claude Code / Cursor / LM Studio tool
+- **AgentCPM-Explore** - Search-optimized 4B model from OpenBMB/THUNLP (recommended)
 - **Agentic Search** - LLM plans and executes search automatically
 - **Parallel search** - 3 Chrome instances for Naver/Google/Brave simultaneously
 - **Multi-LLM support** - SGLang, Ollama, LM Studio, OpenAI-compatible APIs
@@ -98,15 +99,20 @@ python mcp_server.py --sse --port 8902
 | `portal` | `all`/`naver`/`google`/`brave` | Search portal |
 
 #### `agent_search`
+
+Uses LLM to plan search queries, execute searches, and generate answers.
+
 | Parameter | Values | Description |
 |-----------|--------|-------------|
 | `query` | string | Search query (required) |
-| `llm` | `sglang` | **Recommended** - AgentCPM-Explore (search-optimized) |
+| `llm` | `sglang` | **Recommended** - [AgentCPM-Explore](https://huggingface.co/openbmb/AgentCPM-Explore) (4B, search-optimized) |
 | | `ollama` | Local LLM (general purpose) |
 | | `lmstudio` | Local LLM (general purpose) |
 | | `openai` | Paid API |
 | `model` | string | Model name (empty = backend default) |
 | `depth` | `simple`/`medium`/`deep` | Search depth |
+
+> **Why AgentCPM-Explore?** Trained specifically for search agent tasks by OpenBMB/THUNLP. Generates diverse queries and handles tool calling better than general-purpose models.
 
 ### Example Usage
 ```
@@ -142,6 +148,12 @@ python search_agent.py --list-backends
 ## LLM Backend Setup
 
 ### Option A: SGLang + AgentCPM-Explore (Recommended)
+
+**AgentCPM-Explore** is a 4B parameter model from [OpenBMB/THUNLP](https://github.com/OpenBMB/AgentCPM) specifically trained for search agent tasks:
+- Automatically generates diverse search queries (Korean/English, multiple perspectives)
+- Optimized for tool calling (search, fetch_url)
+- Based on Qwen3-4B-Thinking
+
 ```bash
 # 1. Install SGLang (CUDA required)
 pip install sglang[all]
@@ -152,7 +164,6 @@ pip install sglang[all]
 # 3. Start server
 ./start_sglang.sh
 ```
-> AgentCPM-Explore is a 4B model specialized for search agents.
 
 ### Option B: Ollama (Easiest)
 ```bash

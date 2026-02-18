@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AgentWebSearch-MCP is an API-key-free local web search system using Chrome DevTools Protocol (CDP) for parallel web searches. Includes MCP server for Claude Code integration and multi-LLM backend support (SGLang, Ollama, LM Studio, OpenAI-compatible).
+AgentWebSearch-MCP is an API-key-free local web search system using Chrome DevTools Protocol (CDP) for parallel web searches. Includes MCP server for Claude Code integration.
+
+**Recommended Model**: [AgentCPM-Explore](https://huggingface.co/openbmb/AgentCPM-Explore) - A 4B model from OpenBMB/THUNLP specifically trained for search agent tasks. Generates diverse search queries and handles tool calling optimally.
+
+Supports multi-LLM backends: SGLang (with AgentCPM-Explore), Ollama, LM Studio, OpenAI-compatible.
 
 ## Commands
 
