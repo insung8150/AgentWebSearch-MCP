@@ -784,64 +784,12 @@ def _is_fetch_success(result: str) -> bool:
     return False
 
 
-def _augment_queries(queries: list[str]) -> list[str]:
-    """Augment queries if less than 3 provided (force diverse search)"""
-    if len(queries) >= 3:
-        return queries
-
-    augmented = list(queries)
-    original = queries[0] if queries else ""
-
-    if not original:
-        return augmented
-
-    # Generate additional query variations
-    variations = []
-
-    # Variation 1: Add year/date context
-    if "2026년" in original:
-        variations.append(original.replace("2026년", "제21대"))
-    elif "2025년" in original:
-        variations.append(original.replace("2025년", "제21대"))
-    elif "2026" in original:
-        variations.append(original.replace("2026", "제21대"))
-    else:
-        variations.append(f"{original} 2026")
-
-    # Variation 2: Synonym/rephrasing
-    replacements = [
-        ("대선", "대통령 선거"),
-        ("대통령 선거", "대선"),
-        ("일정", "날짜"),
-        ("날짜", "일정"),
-    ]
-    for old, new in replacements:
-        if old in original:
-            variations.append(original.replace(old, new))
-            break
-
-    # Variation 3: English version for international topics
-    if any(kw in original for kw in ["대선", "선거", "대통령"]):
-        variations.append("Korea presidential election schedule")
-
-    # Add variations until we have 3 queries
-    for v in variations:
-        if v not in augmented and len(augmented) < 3:
-            augmented.append(v)
-
-    print(f"[Query Augment] {len(queries)} -> {len(augmented)}: {augmented}", file=sys.stderr)
-    return augmented
-
-
 async def execute_tool(tool_name: str, arguments: dict) -> str:
     """Execute tool (sequential + timeout + graceful degradation)"""
     if tool_name == "search":
         queries = arguments.get("query", [])
         if isinstance(queries, str):
             queries = [queries]
-
-        # Force minimum 3 queries for diverse search
-        queries = _augment_queries(queries)
 
         # Sequential call per query (cdp_search internally uses 3 Chrome instances in parallel)
         final_results = []
