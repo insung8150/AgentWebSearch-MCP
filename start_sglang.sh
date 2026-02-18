@@ -11,7 +11,8 @@
 #   GPU_ID=1 ./start_sglang.sh
 
 # Configuration - modify these as needed
-MODEL_PATH="${MODEL_PATH:-/path/to/AgentCPM-Explore}"  # <-- SET YOUR MODEL PATH
+# Download: https://huggingface.co/openbmb/AgentCPM-Explore (~8GB)
+MODEL_PATH="${MODEL_PATH:-$HOME/models/AgentCPM-Explore}"
 GPU_ID="${GPU_ID:-0}"
 PORT="${PORT:-30001}"
 LOG_FILE="/tmp/sglang_agentcpm.log"
