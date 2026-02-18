@@ -36,6 +36,48 @@ except ImportError:
     print("Error: cdp_search.py가 필요합니다.", file=sys.stderr)
     sys.exit(1)
 
+# LLM Adapter (agent_search용)
+try:
+    from llm_adapters import get_adapter, detect_available_backends
+    HAS_LLM_ADAPTERS = True
+except ImportError:
+    HAS_LLM_ADAPTERS = False
+
+# search_agent 함수 (agent_search용)
+try:
+    import search_agent as sa_module
+    HAS_SEARCH_AGENT = True
+except ImportError:
+    HAS_SEARCH_AGENT = False
+
+# LLM 백엔드 기본 설정
+LLM_BACKENDS = {
+    "sglang": {
+        "url": "http://localhost:30001/v1",
+        "model": "AgentCPM-Explore",
+        "description": "SGLang + AgentCPM-Explore (검색 특화 모델, 추천)",
+        "recommended": True,
+    },
+    "ollama": {
+        "url": "http://localhost:11434",
+        "model": "qwen3:8b",
+        "description": "Ollama (로컬 LLM, 범용)",
+        "recommended": False,
+    },
+    "lmstudio": {
+        "url": "http://localhost:1234/v1",
+        "model": "",
+        "description": "LM Studio (로컬 LLM, 범용)",
+        "recommended": False,
+    },
+    "openai": {
+        "url": "https://api.openai.com/v1",
+        "model": "gpt-4o",
+        "description": "OpenAI API (유료)",
+        "recommended": False,
+    },
+}
+
 # 설정
 SEARCH_TIMEOUT = 90.0
 FETCH_TIMEOUT = 5.0
@@ -201,7 +243,7 @@ async def _search_cdp(query: str, portal: str = "all") -> list[dict]:
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """MCP 도구 목록 반환"""
-    return [
+    tools = [
         Tool(
             name="web_search",
             description="웹 검색을 수행합니다. Chrome DevTools Protocol을 사용하여 Naver, Google, Brave에서 병렬 검색합니다. API 키 불필요.",
@@ -276,6 +318,47 @@ async def list_tools() -> list[Tool]:
             }
         ),
     ]
+
+    # agent_search 도구 추가 (LLM 어댑터가 있을 때만)
+    if HAS_LLM_ADAPTERS and HAS_SEARCH_AGENT:
+        tools.append(
+            Tool(
+                name="agent_search",
+                description="""로컬 LLM을 사용한 에이전틱 검색입니다. LLM이 검색 계획을 수립하고, 검색 실행, 결과 분석, 답변 생성까지 자동으로 수행합니다.
+
+**추천**: llm=sglang (AgentCPM-Explore 모델, 검색에 특화되어 학습됨)
+**대안**: ollama, lmstudio 등 기존 사용 중인 모델도 선택 가능""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "검색 쿼리"
+                        },
+                        "llm": {
+                            "type": "string",
+                            "enum": ["sglang", "ollama", "lmstudio", "openai"],
+                            "default": "sglang",
+                            "description": "LLM 백엔드. sglang(추천, AgentCPM-Explore 검색특화), ollama(범용), lmstudio(범용), openai(유료)"
+                        },
+                        "model": {
+                            "type": "string",
+                            "default": "",
+                            "description": "모델 이름 (비우면 백엔드 기본값 사용). 예: qwen3:8b, gpt-4o"
+                        },
+                        "depth": {
+                            "type": "string",
+                            "enum": ["simple", "medium", "deep"],
+                            "default": "medium",
+                            "description": "검색 깊이: simple(빠름), medium(기본), deep(상세)"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            )
+        )
+
+    return tools
 
 
 @server.call_tool()
@@ -398,6 +481,63 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output.append("\n*[simple mode: snippets only, no URL fetch]*\n")
 
         return [TextContent(type="text", text="\n".join(output))]
+
+    elif name == "agent_search":
+        if not HAS_LLM_ADAPTERS or not HAS_SEARCH_AGENT:
+            return [TextContent(type="text", text="Error: agent_search requires llm_adapters and search_agent modules")]
+
+        query = arguments.get("query", "")
+        llm = arguments.get("llm", "sglang")
+        model = arguments.get("model", "")
+        depth = arguments.get("depth", "medium")
+
+        if not query:
+            return [TextContent(type="text", text="Error: query is required")]
+
+        # LLM 백엔드 설정
+        backend_cfg = LLM_BACKENDS.get(llm, LLM_BACKENDS["sglang"])
+        url = backend_cfg["url"]
+        model_name = model if model else backend_cfg["model"]
+
+        # 백엔드 사용 가능 여부 확인
+        try:
+            available = detect_available_backends()
+            if llm not in available:
+                available_list = ", ".join(available) if available else "none"
+                return [TextContent(type="text", text=f"Error: {llm} backend not available. Available: {available_list}")]
+        except Exception as e:
+            pass  # 확인 실패해도 일단 진행
+
+        # search_agent 모듈 설정 변경
+        try:
+            # 전역 설정 변경
+            sa_module.LLM_BACKEND = llm
+            sa_module.LLM_URL = url
+            sa_module.LLM_MODEL = model_name
+            sa_module.CURRENT_DEPTH = depth
+
+            # 어댑터 초기화
+            sa_module.LLM_ADAPTER = get_adapter(llm, url=url, model=model_name)
+
+            # 출력 헤더
+            output = [
+                f"## Agent Search: '{query}'",
+                f"**Backend**: {llm} ({backend_cfg['description']})",
+                f"**Model**: {model_name or '(default)'}",
+                f"**Depth**: {depth}",
+                "",
+                "---",
+                ""
+            ]
+
+            # 에이전트 실행
+            result = await sa_module.search_agent(query)
+            output.append(result)
+
+            return [TextContent(type="text", text="\n".join(output))]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error running agent_search: {e}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
