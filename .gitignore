@@ -17,7 +17,7 @@ node_modules/
 # Logs
 *.log
 
-# 한글 문서 제외
+# Korean docs (local only)
 *한글*.md
 검증*.md
 배포*.md
