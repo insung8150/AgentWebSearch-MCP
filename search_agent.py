@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-AgentCPM-Explore + CDP Search Agent (v3-CDmcp-v1)
-- When AgentCPM-Explore model calls search tools, executes via CDP (Chrome DevTools Protocol)
-- Calls chrome-devtools MCP from Python for real browser search
+LocalWebSearch-CDP: API-key-free Local WebSearch
+- Multi-LLM backend support (SGLang, Ollama, LM Studio, OpenAI-compatible)
+- CDP-based parallel web search (Naver, Google, Brave)
+- Smart search with query generation and result summarization
 """
 
 import asyncio
@@ -20,9 +21,22 @@ from urllib.parse import urlparse
 # CDP search module
 from cdp_search import search_with_cdp
 
-# Configuration
+# LLM Adapter layer
+from llm_adapters import (
+    get_adapter,
+    detect_available_backends,
+    BaseLLMAdapter,
+    LLMResponse,
+)
+
+# Configuration - LLM Backend
+LLM_BACKEND = "sglang"  # Default: sglang, ollama, lmstudio, openai
+LLM_URL = None          # None = use default URL for backend
+LLM_MODEL = None        # None = use default model for backend
+LLM_ADAPTER: BaseLLMAdapter | None = None  # Will be initialized at startup
+
+# Legacy config (for backwards compatibility)
 AGENTCPM_URL = "http://localhost:30001/v1/chat/completions"
-# SMARTCRAWL_URL no longer used (replaced by CDP)
 USE_CDP_SEARCH = True  # Whether to use CDP search
 
 # Timeout and parallel processing settings
@@ -831,7 +845,11 @@ async def execute_tool(tool_name: str, arguments: dict) -> str:
 
 
 def parse_tool_calls(text: str) -> list[dict]:
-    """Parse tool_call from model output"""
+    """Parse tool_call from model output (legacy text-based format)
+
+    For adapters that use function calling API, tool_calls are already parsed
+    in the LLMResponse.tool_calls field.
+    """
     tool_calls = []
 
     # Find <tool_call>...</tool_call> pattern
@@ -848,28 +866,116 @@ def parse_tool_calls(text: str) -> list[dict]:
     return tool_calls
 
 
+def parse_tool_calls_from_response(response: LLMResponse) -> list[dict]:
+    """Parse tool calls from LLMResponse (supports both text and function calling)
+
+    Args:
+        response: LLMResponse from adapter
+
+    Returns:
+        List of tool call dicts [{"name": "...", "arguments": {...}}, ...]
+    """
+    # If adapter already parsed tool_calls, use those
+    if response.tool_calls:
+        return [
+            {"name": tc.name, "arguments": tc.arguments}
+            for tc in response.tool_calls
+        ]
+
+    # Otherwise, try text-based parsing
+    return parse_tool_calls(response.content)
+
+
 async def call_agentcpm(messages: list[dict], max_tokens: int = 10000) -> str:
-    """Call AgentCPM-Explore model"""
+    """Call LLM via adapter (legacy function name for compatibility)"""
+    global LLM_ADAPTER
     start = datetime.now()
+
     try:
-        async with httpx.AsyncClient(timeout=MODEL_TIMEOUT) as client:
-            response = await client.post(
-                AGENTCPM_URL,
-                json={
-                    "model": "AgentCPM-Explore",
-                    "messages": messages,
-                    "max_tokens": max_tokens,
-                    "temperature": 0.7
-                }
-            )
-            data = response.json()
-            elapsed = (datetime.now() - start).total_seconds()
-            print(f"[Model Call] {elapsed:.2f}s", file=sys.stderr)
-            return data["choices"][0]["message"]["content"]
+        if LLM_ADAPTER is None:
+            # Fallback to direct HTTP call (legacy behavior)
+            async with httpx.AsyncClient(timeout=MODEL_TIMEOUT) as client:
+                response = await client.post(
+                    AGENTCPM_URL,
+                    json={
+                        "model": "AgentCPM-Explore",
+                        "messages": messages,
+                        "max_tokens": max_tokens,
+                        "temperature": 0.7
+                    }
+                )
+                data = response.json()
+                elapsed = (datetime.now() - start).total_seconds()
+                print(f"[Model Call] {elapsed:.2f}s (legacy)", file=sys.stderr)
+                return data["choices"][0]["message"]["content"]
+
+        # Use adapter
+        response = await LLM_ADAPTER.call(messages, tools=TOOLS)
+        elapsed = (datetime.now() - start).total_seconds()
+        print(f"[Model Call] {elapsed:.2f}s ({LLM_ADAPTER.name})", file=sys.stderr)
+        return response.content
+
     except Exception as e:
         elapsed = (datetime.now() - start).total_seconds()
         print(f"[Model Error] {elapsed:.2f}s: {e}", file=sys.stderr)
         return f"Model call error: {e}"
+
+
+async def call_llm(messages: list[dict]) -> LLMResponse:
+    """Call LLM via adapter (new function with full response)"""
+    global LLM_ADAPTER
+    start = datetime.now()
+
+    if LLM_ADAPTER is None:
+        raise RuntimeError("LLM adapter not initialized. Call init_llm_adapter() first.")
+
+    try:
+        response = await LLM_ADAPTER.call(messages, tools=TOOLS)
+        elapsed = (datetime.now() - start).total_seconds()
+        print(f"[Model Call] {elapsed:.2f}s ({LLM_ADAPTER.name})", file=sys.stderr)
+        return response
+    except Exception as e:
+        elapsed = (datetime.now() - start).total_seconds()
+        print(f"[Model Error] {elapsed:.2f}s: {e}", file=sys.stderr)
+        raise
+
+
+async def init_llm_adapter(
+    backend: str = "sglang",
+    url: str | None = None,
+    model: str | None = None,
+) -> BaseLLMAdapter:
+    """Initialize LLM adapter
+
+    Args:
+        backend: One of "sglang", "ollama", "lmstudio", "openai"
+        url: Optional custom URL
+        model: Optional model name
+
+    Returns:
+        Initialized adapter
+    """
+    global LLM_ADAPTER, LLM_BACKEND, LLM_URL, LLM_MODEL
+
+    LLM_BACKEND = backend
+    LLM_URL = url
+    LLM_MODEL = model
+
+    kwargs = {"timeout": MODEL_TIMEOUT}
+    if url:
+        kwargs["url"] = url
+    if model:
+        kwargs["model"] = model
+
+    LLM_ADAPTER = get_adapter(backend, **kwargs)
+    print(f"[LLM] Initialized {LLM_ADAPTER}", file=sys.stderr)
+    return LLM_ADAPTER
+
+
+async def list_available_backends() -> list[dict]:
+    """List available LLM backends with their models"""
+    backends = await detect_available_backends()
+    return backends
 
 
 def preprocess_query_sync(query: str) -> dict:
@@ -1180,18 +1286,72 @@ async def search_agent(query: str, max_turns: int = 10) -> str:
 async def main():
     global CURRENT_DEPTH
     import argparse
-    parser = argparse.ArgumentParser(description="AgentCPM-Explore Search Agent")
+    parser = argparse.ArgumentParser(
+        description="LocalWebSearch-CDP: API-key-free Local WebSearch",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python search_agent.py "GPT-5 release date"
+  python search_agent.py --llm ollama "latest AI news"
+  python search_agent.py --llm lmstudio --model qwen3-8b "query"
+  python search_agent.py --list-backends
+  python search_agent.py -i  # Interactive mode
+        """
+    )
     parser.add_argument("query", nargs="?", help="Search query")
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     parser.add_argument("--depth", "-d", choices=["simple", "medium", "deep"], default="medium",
                         help="Search depth: simple(snippets only), medium(fetch top 5), deep(fetch all)")
+
+    # LLM backend options
+    parser.add_argument("--llm", choices=["sglang", "ollama", "lmstudio", "openai"],
+                        default="sglang", help="LLM backend (default: sglang)")
+    parser.add_argument("--llm-url", type=str, help="Custom LLM API URL")
+    parser.add_argument("--model", "-m", type=str, help="Model name (backend-specific)")
+    parser.add_argument("--list-backends", action="store_true",
+                        help="List available LLM backends and exit")
+
     args = parser.parse_args()
+
+    # List backends mode
+    if args.list_backends:
+        print("Detecting available LLM backends...\n")
+        backends = await list_available_backends()
+        if not backends:
+            print("No LLM backends detected.")
+            print("\nMake sure one of these is running:")
+            print("  - SGLang: http://localhost:30001")
+            print("  - Ollama: http://localhost:11434")
+            print("  - LM Studio: http://localhost:1234")
+            return
+
+        for b in backends:
+            status = "✅" if b["status"] == "ready" else "❌"
+            print(f"{status} {b['name']}: {b['url']}")
+            print(f"   Models: {', '.join(b['models'][:5])}")
+            if len(b['models']) > 5:
+                print(f"   ... and {len(b['models']) - 5} more")
+            print(f"   Tool format: {b['tool_format']}")
+            print()
+        return
+
+    # Initialize LLM adapter
+    try:
+        await init_llm_adapter(
+            backend=args.llm,
+            url=args.llm_url,
+            model=args.model,
+        )
+    except Exception as e:
+        print(f"[ERROR] Failed to initialize LLM adapter: {e}", file=sys.stderr)
+        print(f"[ERROR] Make sure the {args.llm} backend is running.", file=sys.stderr)
+        sys.exit(1)
 
     CURRENT_DEPTH = args.depth
     print(f"[Search Depth] {CURRENT_DEPTH}: {DEPTH_CONFIG[CURRENT_DEPTH]['description']}", file=sys.stderr)
 
     if args.interactive:
-        print("AgentCPM-Explore Search Agent (exit: quit)")
+        print(f"LocalWebSearch-CDP ({args.llm}) - exit: quit")
         print("=" * 50)
         while True:
             try:
