@@ -53,7 +53,7 @@ except ImportError:
 # LLM backend configurations
 LLM_BACKENDS = {
     "sglang": {
-        "url": "http://localhost:30001/v1",
+        "url": "http://localhost:30001",
         "model": "AgentCPM-Explore",
         "description": "SGLang + AgentCPM-Explore (search-optimized, recommended)",
         "recommended": True,
@@ -65,13 +65,13 @@ LLM_BACKENDS = {
         "recommended": False,
     },
     "lmstudio": {
-        "url": "http://localhost:1234/v1",
+        "url": "http://localhost:1234",
         "model": "",
         "description": "LM Studio (local LLM, general purpose)",
         "recommended": False,
     },
     "openai": {
-        "url": "https://api.openai.com/v1",
+        "url": "",
         "model": "gpt-4o",
         "description": "OpenAI API (paid)",
         "recommended": False,
