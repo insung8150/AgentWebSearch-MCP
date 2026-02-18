@@ -16,3 +16,11 @@ node_modules/
 
 # Logs
 *.log
+
+# 한글 문서 제외
+*한글*.md
+검증*.md
+배포*.md
+에이젼틱*.md
+추가*.md
+계획*.md
