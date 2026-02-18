@@ -5,6 +5,40 @@
 Need WebSearch for your local LLM (Ollama, LM Studio) or Claude Code?
 No API keys needed - **just Chrome**.
 
+## How It Works
+
+> **This tool launches REAL Chrome browsers** - not headless, not simulated.
+>
+> It opens actual Chrome windows and controls them via CDP (Chrome DevTools Protocol).
+> This is why it can bypass bot detection and CAPTCHA - because it IS a real browser.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Your Desktop                                           │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐       │
+│  │ Chrome:9222 │ │ Chrome:9223 │ │ Chrome:9224 │       │
+│  │   Naver     │ │   Google    │ │   Brave     │       │
+│  │  (search)   │ │  (search)   │ │  (search)   │       │
+│  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘       │
+│         │               │               │               │
+│         └───────────────┼───────────────┘               │
+│                         │ CDP (WebSocket)               │
+│                    ┌────┴────┐                          │
+│                    │   MCP   │                          │
+│                    │ Server  │                          │
+│                    └────┬────┘                          │
+│                         │                               │
+│                    Claude Code                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Why real browsers?**
+- No API keys needed (you're just browsing)
+- No rate limits (normal browser behavior)
+- CAPTCHA resistant (real browser fingerprint)
+- Login sessions persist (cookies saved)
+- Korean portals work (Naver requires real browser)
+
 ## Key Benefits
 
 | Feature | Tavily/Brave API | AgentWebSearch-MCP |
