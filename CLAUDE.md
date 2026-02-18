@@ -25,21 +25,20 @@ python mcp_server.py              # stdio mode (Claude Code)
 python mcp_server.py --sse --port 8902  # SSE mode (HTTP)
 ```
 
-### Run standalone search agent
-```bash
-python search_agent.py "query"                    # Default: SGLang
-python search_agent.py --llm ollama "query"       # Ollama backend
-python search_agent.py --llm lmstudio "query"     # LM Studio
-python search_agent.py "query" --depth deep       # Deep search
-python search_agent.py -i                         # Interactive mode
-python search_agent.py --list-backends            # List backends
-```
+### Use MCP tools (recommended)
 
-### Start LLM backends
+When running as MCP server, use the MCP tools directly. They auto-detect available backends:
+- `web_search` - Simple search
+- `smart_search` - Search + fetch URLs
+- `agent_search` - Full agentic search (auto-detects LLM)
+
+**Do NOT run search_agent.py directly when using MCP.** Just call the MCP tools.
+
+### Run standalone search agent (CLI only)
 ```bash
-./start_sglang.sh    # SGLang (recommended)
-ollama serve         # Ollama
-# LM Studio - start via GUI
+# Only for command line usage, not within Claude Code
+python search_agent.py "query" --depth deep
+python search_agent.py -i                         # Interactive mode
 ```
 
 ## Architecture
@@ -72,12 +71,17 @@ chrome_launcher.py     Chrome instance lifecycle (ports 9222-9224)
 
 ### agent_search LLM Backends
 
-| Backend | Description | Recommended |
-|---------|-------------|-------------|
-| `sglang` | AgentCPM-Explore (search-optimized) | ✅ |
-| `ollama` | Local LLM (general purpose) | |
-| `lmstudio` | Local LLM (general purpose) | |
-| `openai` | Paid API | |
+**Auto-detect**: `agent_search` automatically detects and uses any available backend. No need to specify or start a specific backend manually.
+
+| Backend | Description |
+|---------|-------------|
+| `auto` | **Default** - Uses first available backend |
+| `sglang` | AgentCPM-Explore (if running) |
+| `lmstudio` | LM Studio (if running) |
+| `ollama` | Ollama (if running) |
+| `openai` | Paid API |
+
+**Important**: Just call `agent_search` MCP tool. It will use whatever LLM backend is currently running (including the one running Claude Code itself via LM Studio/Ollama).
 
 ## Key Configuration
 
