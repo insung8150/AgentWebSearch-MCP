@@ -19,7 +19,7 @@ API 키 발급 없이, **Chrome만 있으면 됩니다.**
 - **API 키 불필요** - Chrome CDP (DevTools Protocol) 직접 제어
 - **병렬 검색** - 크롬 3개 인스턴스로 네이버/구글/Brave 동시 검색
 - **한국어 지원** - 네이버 통합검색 포함
-- **로컬 LLM 연동** - SGLang + AgentCPM-Explore 기반
+- **멀티 LLM 지원** - SGLang, Ollama, LM Studio, OpenAI-호환 API
 - **봇 탐지 회피** - 세션 유지 + 탐지 회피 플래그
 
 ## 설치
@@ -35,16 +35,34 @@ pip install -r requirements.txt
 python chrome_launcher.py
 ```
 
-### 3. SGLang 서버 시작 (LLM)
+### 3. LLM 백엔드 시작
+
+LocalWebSearch-CDP는 다양한 LLM 백엔드를 지원합니다:
+
 ```bash
+# 옵션 1: SGLang + AgentCPM-Explore (기본, 검색 특화)
 ./start_sglang.sh
+
+# 옵션 2: Ollama
+ollama serve
+
+# 옵션 3: LM Studio
+# LM Studio 앱에서 서버 시작
 ```
 
 ## 사용법
 
 ```bash
-# 단일 질문
+# 단일 질문 (기본: SGLang)
 python search_agent.py "검색어"
+
+# LLM 백엔드 선택
+python search_agent.py --llm ollama "검색어"
+python search_agent.py --llm lmstudio "검색어"
+python search_agent.py --llm lmstudio --model qwen3-8b "검색어"
+
+# 사용 가능한 백엔드 확인
+python search_agent.py --list-backends
 
 # 검색 깊이 설정
 python search_agent.py "검색어" --depth simple   # snippet만 (빠름)
@@ -60,7 +78,11 @@ python search_agent.py -i
 ```
 사용자 질문
     ↓
-SGLang (port 30001) - AgentCPM-Explore 4B
+LLM Adapter Layer
+├── SGLang (port 30001) - AgentCPM-Explore (기본)
+├── Ollama (port 11434) - qwen3:8b 등
+├── LM Studio (port 1234) - 로드된 모델
+└── OpenAI (호환 API)
     ↓
 CDP Search (병렬)
 ├── Chrome:9222 → 네이버
@@ -74,12 +96,18 @@ CDP Search (병렬)
 
 ```
 LocalWebSearch-CDP/
-├── search_agent.py      # 메인 에이전트
-├── cdp_search.py        # CDP 병렬 검색
-├── chrome_launcher.py   # 크롬 인스턴스 관리
-├── start_sglang.sh      # SGLang 서버 시작
-├── clear_tabs.py        # 탭 정리 유틸리티
-└── clear_tabs_cdp.sh    # 탭 정리 스크립트
+├── search_agent.py       # 메인 에이전트
+├── cdp_search.py         # CDP 병렬 검색
+├── chrome_launcher.py    # 크롬 인스턴스 관리
+├── llm_adapters/         # 멀티 LLM 지원
+│   ├── base.py           # 공통 인터페이스
+│   ├── sglang_adapter.py # SGLang (<tool_call> 포맷)
+│   ├── ollama_adapter.py # Ollama (function calling)
+│   ├── lmstudio_adapter.py
+│   └── openai_adapter.py
+├── start_sglang.sh       # SGLang 서버 시작
+├── clear_tabs.py         # 탭 정리 유틸리티
+└── clear_tabs_cdp.sh     # 탭 정리 스크립트
 ```
 
 ## 성능
@@ -94,7 +122,11 @@ LocalWebSearch-CDP/
 
 - Python 3.10+
 - Chrome/Chromium
-- SGLang + AgentCPM-Explore 모델
+- LLM 백엔드 (아래 중 하나):
+  - SGLang + AgentCPM-Explore (검색 특화, 권장)
+  - Ollama + qwen3:8b 이상
+  - LM Studio
+  - OpenAI 호환 API
 
 ## 라이선스
 
