@@ -44,7 +44,7 @@ python chrome_launcher.py stop    # Stop all
 
 ## MCP Server
 
-Use web search as an MCP tool in Claude Code, Cursor, or LM Studio.
+Use web search as an MCP tool in Claude Code, Cursor, LM Studio, or [OpenClaw/Moltbot](https://github.com/nicepkg/openclaw).
 
 ### Quick Start
 ```bash
@@ -71,6 +71,14 @@ claude mcp add agentwebsearch -s user -- python /path/to/mcp_server.py
     }
   }
 }
+```
+
+### OpenClaw/Moltbot Registration
+```bash
+# Add MCP to OpenClaw
+openclaw mcp add agentwebsearch -- python /path/to/mcp_server.py
+
+# Or add to ~/.openclaw/config.json
 ```
 
 ### SSE Mode (HTTP Server)
