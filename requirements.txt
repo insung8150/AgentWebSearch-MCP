@@ -1,6 +1,7 @@
 # Core dependencies
 httpx>=0.24.0
 beautifulsoup4>=4.12.0
+websocket-client>=1.6.0
 
 # MCP server
 mcp>=1.0.0
