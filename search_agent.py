@@ -259,14 +259,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search",
-            "description": "Search for information on web/local index. Can search multiple queries simultaneously.",
+            "description": "Search for information on web. MUST provide 3-5 diverse queries for comprehensive results.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "List of search queries (max 5)"
+                        "minItems": 3,
+                        "maxItems": 5,
+                        "description": "List of 3-5 search queries (REQUIRED: minimum 3 queries with different phrasings)"
                     }
                 },
                 "required": ["query"]
@@ -306,12 +308,20 @@ Available tools:
    - Returns URL + title + snippet (NO full content)
 2. fetch_url(url: list[str], purpose: str) - Fetch full webpage content.
 
-## WORKFLOW (Universal Mode)
-1. You MUST call search() at least once for every query.
-2. Use search() as many times as needed to gather broad, diverse sources.
-3. Use fetch_url() to retrieve full content from the most relevant URLs.
-4. Prioritize official/primary sources when available.
-5. Do NOT stop early for speed. Favor coverage and evidence.
+## WORKFLOW (MANDATORY - MUST FOLLOW)
+**CRITICAL: You MUST generate EXACTLY 3-5 search queries. Single query is NOT allowed.**
+
+1. When calling search(), you MUST provide 3-5 different queries in the array:
+   - Query 1: Original user question
+   - Query 2: Rephrased version with synonyms
+   - Query 3: Related aspect or different angle
+   - Query 4-5: English version if international topic
+
+   CORRECT: {{"query": ["2026 대선 일정", "제21대 대통령 선거 날짜", "Korea presidential election 2026"]}}
+   WRONG: {{"query": ["2026 대선 일정"]}}  <-- DO NOT DO THIS
+
+2. Use fetch_url() to retrieve full content from the most relevant URLs.
+3. Prioritize official/primary sources when available.
 
 Tool call format:
 <tool_call>
@@ -323,10 +333,10 @@ Tool call format:
 </tool_call>
 
 ## LANGUAGE STRATEGY (Determine before search)
-1. Korean topics -> Search in Korean
+1. Korean topics -> Search in Korean (include 2-3 variations)
 2. US/Global tech -> Search in English
 3. Chinese topics -> Search in Chinese
-4. International topics -> Search in English + Korean
+4. International topics -> Search in English + Korean (both)
 
 ## FINAL OUTPUT (Designed for upper LLM to summarize)
 - Do NOT write a deep synthesis.
@@ -774,12 +784,64 @@ def _is_fetch_success(result: str) -> bool:
     return False
 
 
+def _augment_queries(queries: list[str]) -> list[str]:
+    """Augment queries if less than 3 provided (force diverse search)"""
+    if len(queries) >= 3:
+        return queries
+
+    augmented = list(queries)
+    original = queries[0] if queries else ""
+
+    if not original:
+        return augmented
+
+    # Generate additional query variations
+    variations = []
+
+    # Variation 1: Add year/date context
+    if "2026년" in original:
+        variations.append(original.replace("2026년", "제21대"))
+    elif "2025년" in original:
+        variations.append(original.replace("2025년", "제21대"))
+    elif "2026" in original:
+        variations.append(original.replace("2026", "제21대"))
+    else:
+        variations.append(f"{original} 2026")
+
+    # Variation 2: Synonym/rephrasing
+    replacements = [
+        ("대선", "대통령 선거"),
+        ("대통령 선거", "대선"),
+        ("일정", "날짜"),
+        ("날짜", "일정"),
+    ]
+    for old, new in replacements:
+        if old in original:
+            variations.append(original.replace(old, new))
+            break
+
+    # Variation 3: English version for international topics
+    if any(kw in original for kw in ["대선", "선거", "대통령"]):
+        variations.append("Korea presidential election schedule")
+
+    # Add variations until we have 3 queries
+    for v in variations:
+        if v not in augmented and len(augmented) < 3:
+            augmented.append(v)
+
+    print(f"[Query Augment] {len(queries)} -> {len(augmented)}: {augmented}", file=sys.stderr)
+    return augmented
+
+
 async def execute_tool(tool_name: str, arguments: dict) -> str:
     """Execute tool (sequential + timeout + graceful degradation)"""
     if tool_name == "search":
         queries = arguments.get("query", [])
         if isinstance(queries, str):
             queries = [queries]
+
+        # Force minimum 3 queries for diverse search
+        queries = _augment_queries(queries)
 
         # Sequential call per query (cdp_search internally uses 3 Chrome instances in parallel)
         final_results = []
