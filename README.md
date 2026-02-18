@@ -93,7 +93,7 @@ python mcp_server.py --sse --port 8902
 
 ### 3. Choose and install LLM backend
 
-LocalWebSearch-CDP supports multiple LLM backends:
+AgentWebSearch-MCP supports multiple LLM backends:
 
 #### Option A: SGLang + AgentCPM-Explore (Search-optimized, Recommended)
 ```bash
