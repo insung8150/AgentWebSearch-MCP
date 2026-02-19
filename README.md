@@ -80,6 +80,22 @@ python chrome_launcher.py status  # Check status
 python chrome_launcher.py stop    # Stop all
 ```
 
+### 3. Login & Sync (optional but recommended)
+
+By default, Chrome instances use temporary profiles (`/tmp/`). For persistent login:
+
+1. **Open CDP Chrome** (after `chrome_launcher.py start`)
+2. **Sign in to Google** in the Chrome window
+3. **Enable sync** (Settings → Sync)
+
+**Benefits:**
+- OAuth login ("Sign in with Google") works automatically
+- Saved passwords auto-fill
+- Better search results (personalized)
+- Sessions persist across restarts
+
+> **Note:** To make profiles permanent, change profile paths in `chrome_launcher.py` from `/tmp/chrome-*-profile` to `~/.config/chrome-cdp/*`
+
 ## MCP Server
 
 Use web search as an MCP tool in Claude Code, Cursor, LM Studio, or [OpenClaw/Moltbot](https://github.com/nicepkg/openclaw).
