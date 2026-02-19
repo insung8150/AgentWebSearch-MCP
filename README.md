@@ -46,13 +46,14 @@ No API keys needed - **just Chrome**.
 
 ## Key Benefits
 
-| Feature | Tavily/Brave API | AgentWebSearch-MCP |
-|---------|------------------|---------------------|
-| API Key | **Required** | **Not needed** |
-| Cost | Paid/Limited | **Free** |
-| Setup | Complex | **Just install Chrome** |
-| Korean Portals | Limited | **Naver supported** |
-| MCP Support | ❌ | **✅ Built-in** |
+| Feature | Tavily/Brave API | SearXNG (OpenClaw) | AgentWebSearch-MCP |
+|---------|------------------|---------------------|---------------------|
+| API Key | **Required** | Not needed | **Not needed** |
+| Cost | Paid/Limited | Free | **Free** |
+| Setup | Get API key | Host SearXNG server | **Just install Chrome** |
+| Bot Detection | N/A | Easily blocked | **Bypassed (real browser)** |
+| Korean Portals | Limited | No Naver | **Naver supported** |
+| MCP Support | ❌ | ❌ | **✅ Built-in** |
 
 ## Features
 
